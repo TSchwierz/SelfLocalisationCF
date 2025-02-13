@@ -1,0 +1,207 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+class GridNetwork:
+    
+    def __init__(self, N_x, N_y, Seed=43, beta=0):
+        self.N_x =  N_x
+        self.N_y = N_y
+        self.N = N_x * N_y # N for one layer, not the whole network
+
+        self.distance_matrix = self.initialize_distance_matrix()
+
+        # params of the (dynamic) weight matrix
+        self.I = 0.3                                # intensity parameter (overall synaptic strength)
+        self.T = 0.05                               # shift parameter (determining excitatory and inhibitory connections)
+        self.sigma = 0.24                           # size of the gaussian
+        self.tau = 0.8                              # normalization parameter
+        self.gains = np.arange(1,3.1,0.5)           # Gain parameters (layers of the network)
+        self.beta = beta                               # bias parameter (rotation of the grid)
+        self.R = np.array([[np.cos(self.beta), -np.sin(self.beta)],[np.sin(self.beta), np.cos(self.beta)]]) # rotation matrix
+
+        # some extra parameters
+        self.n = self.N * len(self.gains)           # actual size of the network
+        self.name = 'Grid network'
+
+        # random seed
+        self.seed = Seed 
+        self.update_network_shape()        # Update network_activity shape based on initial gains
+        
+        
+    def update_network_shape(self):
+        '''Function to update the num of layers (gains) the network has'''
+        # np.random.seed(self.seed)
+        rng = np.random.default_rng(seed=self.seed) # create a random generator instance (to get locally random seeds)
+        self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
+
+    def set_gains(self, gains):
+        '''Function to change what gains are being used. It can vary in lenghts (layers of the network)'''
+        self.gains = gains
+        self.update_network_shape()  # Update network_activity shape when gains are changed
+
+    def initialize_distance_matrix(self):
+        ''' Function to initialize the distance matrix between all neurons. 
+            Returns a matrix of N by N by 2. The last dimension corresponds to the 2d coordinates.
+        '''
+        
+        N =  self.N
+        
+        i = np.arange(1, self.N_x+1)
+        j = np.arange(1, self.N_y+1)
+
+        x, y = np.meshgrid(i,j) # create x y coordinates (in 2d grids)
+        x = np.ravel(x) # np.ravel and .flatten() is, in practice, the same 
+        y = np.ravel(y)
+
+        # compute c (position of the cells on the sheet, defined by coordinates c_x and c_y)
+        cx = (x - 0.5)/self.N_x
+        cy = (np.sqrt(3)/2) * (y - 0.5)/self.N_y
+        c = np.array([[cx[i], cy[i]] for i in range(N)]) # list with 2d coordinates (len(c)=N)
+
+        # Initialize ll possible rotations in the twisted toroidal structure
+        s_j = [[0, 0], [-0.5, np.sqrt(3)/2], [-0.5,-np.sqrt(3)/2], [0.5, np.sqrt(3)/2],  [0.5, -np.sqrt(3)/2], [-1, 0], [1, 0]] 
+        
+        distance_matrix = np.zeros((N,N,2))
+
+        # loop through all combinations of neurons
+        for i in range(N):
+            for j in range(N):
+                min_norm = float('inf')  # Initialize with positive infinity to ensure the first norm is smaller
+                for s in s_j: # Iterate over each s_j and compute the norm
+                    # Compute the the min norm of the vector c[i] - c[j] + s
+                    norm = np.linalg.norm(c[i] - c[j] + s)
+                    # Update the minimum norm and its index if the current norm is smaller
+                    if norm < min_norm:
+                        min_norm = norm # update min norm
+                        min_s = s
+                        
+                dist = c[i] - c[j] + min_s
+                distance_matrix[i,j] = dist
+
+        print('Distance matrix initialized') 
+        return distance_matrix
+    
+
+    def weight_function(self, I, T, sigma):
+        ''' 
+        This is to play around with different values of the parameters of the weight function to understand it better. 
+        The weight function in the model includes the velocity vector, which here is considered to be 0.
+        Params:
+                I = intensity parameter, defines the overall synaptic strenght
+                sigma = regulates the size of the gaussian
+                T = shift parameter determining excitatory and inhibitory connections
+        Outputs: Weight matrix
+        Note: This functiion is not used to update weights, (there is no input in this one)
+              This is just to be able to play with the parameters'''
+            
+        W = I * np.exp(-(np.linalg.norm(self.distance_matrix, axis=2)**2)/sigma**2) - T
+        
+        return W
+   
+
+    def update_network(self, velocity_vec, get_next_state=False):
+        '''This function is to simulate grid-cell activity in real time'''
+        
+        if get_next_state: # init variable if get)next_state is True
+            next_state_activity = np.zeros((len(self.gains), self.N))# this is for the RL part
+
+        for a, alpha in enumerate(self.gains):  # Iterate over alpha values
+            # Update weight matrix based on current velocity and alpha
+            W = self.I * np.exp(- (np.linalg.norm(self.distance_matrix + alpha * np.dot(self.R, velocity_vec), axis=2)**2) / self.sigma**2) - self.T
+            # W = self.I * np.exp(- (np.linalg.norm(self.distance_matrix + alpha * velocity_vec, axis=2)**2) / self.sigma**2) - self.T # for 1d (not sure this would work now)
+            self.W = W
+            # Calculate activity using transfer function
+            b_activity = self.network_activity[a, :]
+            b_activity += b_activity @ W
+            # Normalize activity
+            net_activity = ((1 - self.tau) * b_activity + self.tau * (b_activity / np.sum(self.network_activity[a, :])))
+            net_activity = b_activity
+            net_activity[net_activity < 0] = 0 
+            net_activity = (net_activity - np.min(net_activity)) / (np.max(net_activity) - np.min(net_activity))
+          
+            if np.isnan(net_activity).any():
+                print(velocity_vec)
+                print(net_activity)
+                raise ValueError('check this out, activity is exploading')
+            
+            # save activity for each gain
+            if not get_next_state: # this is when network is run normally
+                self.network_activity[a, :] = net_activity
+            else: # this is when only evaluating next state ('kick') for RL. 
+                next_state_activity[a,:] = net_activity  
+
+        if get_next_state:
+            # print('test with net activity:', np.mean(next_state_activity-self.network_activity) )
+            return next_state_activity
+           
+    def reset_activity(self):
+        ''' To reset the activity population in case there are jumps in xpace (the agent is randomly placed in a new location)'''
+        # np.random.seed(self.seed)
+        rng = np.random.default_rng(seed=self.seed)
+        self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
+
+
+    # PLOTS
+    # Creating the figure and defining gridspec
+    def plot_frame_figure(self, positions_fig, network_activity, num_bins, arena_size=1):
+        '''
+        TODO in this funciton: 
+        - write documentation
+        - center the gains wrt the plot (this is in case more or less gains are used, purely aesthetic)
+            
+            '''
+        fig = plt.figure(figsize=(13, 8))
+        gs = fig.add_gridspec(2, 6, height_ratios=[1, 2.5], width_ratios=[1, 1, 1, 1, 1, 0.07]) # if I want to add colorbar
+        # gs = fig.add_gridspec(2, 5, height_ratios=[1, 2.5], width_ratios=[1, 1, 1, 1, 1]) 
+                                                            # 2 rows, 5 columns. using gridspec to ease locating plots in grids of the figure
+                                                            # height_ratios are the diff in size from top row plots vs bottom ones
+        # Adding subplots to the gridspec
+        for a, alpha in enumerate(self.gains):
+
+            heatmap_ax = fig.add_subplot(gs[0, a])
+            # heatmap, _, _ = np.histogram2d(np.array(positions_fig)[:,0], np.array(positions_fig)[:,1], weights=np.array(network_activity)[:,a,28].flatten(), range=[[0,1], [0,1]], bins=60)
+
+            # Initialize an empty heatmap
+            num_bins = num_bins
+            x_bins = np.linspace(0,arena_size,num_bins)
+            y_bins = np.linspace(0,arena_size,num_bins)
+            heatmap = np.zeros((num_bins, num_bins))
+
+            # Iterate over positions and network_activity
+            for position, activity in zip(positions_fig, network_activity):
+                # x_index = int(position[0] * num_bins) # discretize positions into bins 
+                # y_index = int(position[1] * num_bins)
+                x_index = np.digitize(position[0], x_bins) - 1
+                y_index = np.digitize(position[1], y_bins) - 1
+                heatmap[x_index, y_index] = max(heatmap[x_index, y_index], activity[a, 28]) # get max activity at each position of the heatmap (update fr rate)
+
+            im = heatmap_ax.imshow(heatmap.T, extent=[0, arena_size, 0, arena_size], origin='lower', vmax=1, vmin=0)
+            heatmap_ax.set(title=f'Gain = {round(alpha, 2)}', xticks=[], yticks=[])
+            # add labels left plot
+            if a == 0:
+                heatmap_ax.set_xlabel('X axis arena')
+                heatmap_ax.set_ylabel('Y axis arena')
+
+        # # add subplot for colorbar (there is sth odd here, max fr is a bit above 1 and not 1)
+        cbar_ax = fig.add_subplot(gs[0, -1])  # Spanning the last column
+        colorbar = fig.colorbar(im, cax=cbar_ax)
+        colorbar.set_label('Normalized firing rate', labelpad=15, rotation=270)
+        colorbar.set_ticks([0, 0.5, 1])  # Set ticks at min, mid, and max values
+        colorbar.set_ticklabels([f'{0:.2f}', f'{0.5:.2f}', f'{1:.2f}'])  # Set tick labels
+
+
+        # Adding subplot for the bottom row
+        trajectory_ax = fig.add_subplot(gs[1, 1:4])  # Spanning 3 columns in the middle
+        # Ag_fig.plot_trajectory(fig=fig, ax=trajectory_ax)
+        trajectory_ax.plot(positions_fig[:, 0], positions_fig[:, 1], alpha=0.7, color='purple')
+
+        trajectory_ax.set_title('Arena', fontsize=20)
+
+        # fig.suptitle('Neuron firing rate', fontsize=25, y=1.01)
+        # fig.supxlabel(f'Time: {round(Ag_fig.t,2)}s')
+
+        # Adjust layout
+        fig.tight_layout(h_pad=3.0) # change spacing between plots
+        # plt.savefig('/Users/raimonbullich/Documents/Research_SPECS/Projects/Multimodal Grid Cells/Figure 1 frames/f1.png', bbox_inches='tight', dpi=300)
+        plt.savefig()
+        
