@@ -32,7 +32,7 @@ class controller():
 
         print('Controller initialised')
 
-    def update(self, direction):
+    def update(self, direction, yaw_change):
         dt = self.robot.getTime() - self.past_time
         actual_state = {}
 
@@ -62,8 +62,10 @@ class controller():
         # Initialize values
         desired_state = [0, 0, 0, 0]
         forward_desired, sideways_desired = direction
-        np.clip([forward_desired, sideways_desired], -0.5, 0.5)
-        yaw_desired = 0
+        #np.clip([forward_desired, sideways_desired], -0.5, 0.5)
+        
+        yaw_desired = yaw + yaw_change # if change is zero, stay at current yaw
+
         height_diff_desired = 0      
         self.height_desired += height_diff_desired * dt
 

@@ -10,10 +10,13 @@ Files:
 	- Implementaion of a fixed height pid controller for the crazyflie. Sourced from sample controller under MIT license.
 - GridNetwork.py
 	- This code implements the grid cell model of the guanella paper (doi:10.1142/S0129065707001093). Thanks to Raimon Bullich Villareal for providing the majority of the code.
+- Sample
+	- Within this folder are the sample scripts of webots for the wall_following drone controller._ 
 
 
 Current Tasks:
-1. Add a method to determin distance to walls
-2. when generating a new direction, check for proximity to walls and create a heavy bias for direction pointing away from them.
+1. Look over the control of the yaw. It is currently oscillating and unstable after some time.
+2. when generating a new direction, check for proximity to walls using gps and create a heavy bias for direction pointing away from them.
 3. combine the pid and controller scripts into one module
-4. Add the grid functionality to the drone
+4. Add update to the grid network based on the drones velocity
+5. Add raimons changes for location decoding to the network module
