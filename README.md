@@ -14,7 +14,7 @@ Files:
 	- Within this folder are the sample scripts of webots for the wall_following drone controller._ 
 
 # Latest Change:
-15.02.: Added code to update the grid network on every timestep. It seems that the network is prone to overflow issues after just a couple of timesteps(~20sec).
+15.02.: Added code to update the grid network on every timestep. It seems that the network is prone to overflow issues after just a couple of timesteps(~20sec).<br>
 15.02.: Corrected the yaw behaviour. Previously the yaw of the drone would be oscillating between two values. It now correctly stays in place until a new rotation command is given. The drone now stabily moves for large simulated times (>1h), but seems to have a preferrence of staying within a certain quadrand.
 
 
