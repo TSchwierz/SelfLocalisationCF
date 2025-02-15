@@ -202,6 +202,6 @@ class GridNetwork:
 
         # Adjust layout
         fig.tight_layout(h_pad=3.0) # change spacing between plots
-        # plt.savefig('/Users/raimonbullich/Documents/Research_SPECS/Projects/Multimodal Grid Cells/Figure 1 frames/f1.png', bbox_inches='tight', dpi=300)
+        # plt.savefig('/Users/.../Documents/Research_SPECS/Projects/Multimodal Grid Cells/Figure 1 frames/f1.png', bbox_inches='tight', dpi=300)
         plt.savefig()
         

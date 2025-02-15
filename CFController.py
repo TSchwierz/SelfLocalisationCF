@@ -27,7 +27,6 @@ class controller():
         self.past_x = 0
         self.past_y = 0
         self.past_time = 0
-        self.first_time = False
         self.height_desired = FLYING_ATTITUDE
 
         print('Controller initialised')
@@ -35,12 +34,6 @@ class controller():
     def update(self, direction, yaw_change):
         dt = self.robot.getTime() - self.past_time
         actual_state = {}
-
-        if False:
-            past_x = self.gps.getValues()[0]
-            past_y = self.gps.getValues()[1]
-            past_time = self.robot.getTime()
-            first_time = False
 
         # Get sensor data
         roll = self.imu.getRollPitchYaw()[0]
@@ -64,14 +57,15 @@ class controller():
         forward_desired, sideways_desired = direction
         #np.clip([forward_desired, sideways_desired], -0.5, 0.5)
         
-        yaw_desired = yaw + yaw_change # if change is zero, stay at current yaw
+        #print(f'yaw={yaw}, rate={yaw_rate}')
+        yaw_rate_desired = yaw_change # if change is zero, stay at current yaw
 
         height_diff_desired = 0      
         self.height_desired += height_diff_desired * dt
 
         # PID velocity controller with fixed height
         motor_power = self.pid_model.pid(dt, forward_desired, sideways_desired,
-                                        yaw_desired, self.height_desired,
+                                        yaw_rate_desired, self.height_desired,
                                         roll, pitch, yaw_rate,
                                         altitude, v_x, v_y)
 
@@ -85,7 +79,7 @@ class controller():
         self.past_x = x
         self.past_y = y
 
-        return motor_power, [v_x, v_y]
+        return [x, y], [v_x, v_y]
 
     def get_velocity(self):
         pos = self.gps.getValues()[0:1]

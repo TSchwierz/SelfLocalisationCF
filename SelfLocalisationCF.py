@@ -11,6 +11,7 @@ PID_crazyflie = pid_velocity_fixed_height_controller() # Crazyflie velocity PID 
 control = controller(robot, PID_crazyflie, FLYING_ATTITUDE)
 network = gn(9,10)
 elapsed_time = 0
+position_log = []
 
 def generate_biased_vector(previous_vector: np.ndarray, size: float, bias: float) -> np.ndarray:
     """
@@ -41,23 +42,30 @@ def generate_biased_vector(previous_vector: np.ndarray, size: float, bias: float
 initial_pause = 6 #(in s) amount of time at the start for the drone to lift off and stabilise
 modi = 2 #(in s) the interval with which new directionak commands should be given
 modi_pr = 0.032 #(in s) setting this to 32ms or equal to the robot timestep ensures only one new command per interval
-size = 0.05 # magnitude of movement vector
+size = 0.1 # magnitude of movement vector
 bias = -1 # randomness of movement 
 
 prev_direction = np.array([0, 0])
 direction = prev_direction
 yaw = 0
+network_state = 0
+
 # Main loop:
-while robot.step(timestep) != -1:
+while robot.step(timestep) != -1 and elapsed_time < 60*60: #1h #:
     elapsed_time += (timestep/1000) # ms to s
     direction=[0,0]
     yaw = 0
     if (elapsed_time>=initial_pause and elapsed_time%modi<=modi_pr):
         direction = generate_biased_vector(prev_direction, size, bias)
         print(f'time={elapsed_time}direction={direction} new direction angle {np.arctan2(direction[1], direction[0])/(0.5*np.pi):.2}')
-    if (elapsed_time>=initial_pause and elapsed_time%modi<=(modi_pr)):
-       yaw = np.random.uniform(-1,1)
-       print('new yaw={yaw}')
-    cmds, velocity = control.update(direction, yaw)
-    prev_direction = velocity #control.get_velocity()
+    if (elapsed_time>=initial_pause and elapsed_time%3<=(modi_pr) and elapsed_time%2>(modi_pr)):
+       yaw = np.random.uniform(0,np.pi)
+       print(f'new yaw={yaw}')
+    position, velocity = control.update(direction, yaw)
+    prev_direction = velocity 
+    network_state = network.update_network(velocity, get_next_state=True)
+    position_log.append(position)
     #print(f'time={elapsed_time}')#, planned direction={direction}, actual direction={velocity}')
+
+print(f'Simulation finished at time={elapsed_time}\nGenerating image')
+network.plot_frame_figure(positions_fig=position_log, network_activity=network_state, num_bins=60)
