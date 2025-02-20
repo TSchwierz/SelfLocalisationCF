@@ -4,14 +4,13 @@ from pid_controller import pid_velocity_fixed_height_controller
 from CFController import controller
 from GridNetwork import GridNetwork as gn
 
+# Initialise needed instances
 FLYING_ATTITUDE = 1
 robot = Robot()
 timestep = int(robot.getBasicTimeStep())
 PID_crazyflie = pid_velocity_fixed_height_controller() # Crazyflie velocity PID controller
 control = controller(robot, PID_crazyflie, FLYING_ATTITUDE)
 network = gn(9,10)
-elapsed_time = 0
-position_log = []
 
 def generate_biased_vector(previous_vector: np.ndarray, size: float, bias: float) -> np.ndarray:
     """
@@ -39,31 +38,35 @@ def generate_biased_vector(previous_vector: np.ndarray, size: float, bias: float
     new_vector = np.array([np.cos(new_angle), np.sin(new_angle)]) * size # Convert polar to Cartesian coordinates
     return new_vector
 
+# Simulation Constants
 initial_pause = 6 #(in s) amount of time at the start for the drone to lift off and stabilise
-modi = 2 #(in s) the interval with which new directionak commands should be given
-modi_pr = 0.032 #(in s) setting this to 32ms or equal to the robot timestep ensures only one new command per interval
+modi = 2 #(in s) the interval with which a new direction commands should be given
+modi_pr = 0.032 #(in s) setting this to 32ms (equal to the robot timestep) ensures only one new command per interval
 size = 0.1 # magnitude of movement vector
 bias = -1 # randomness of movement 
 
+# Initialising state variables
 prev_direction = np.array([0, 0])
-direction = prev_direction
-yaw = 0
-network_state = 0
+direction = prev_direction 
+yaw = 0 # initial yaw
+network_state = 0 
+elapsed_time = 0
+position_log = []
 
 # Main loop:
-while robot.step(timestep) != -1 and elapsed_time < 60*60: #1h #:
+while robot.step(timestep) != -1 and elapsed_time < 60*60: #1h max#:
     elapsed_time += (timestep/1000) # ms to s
-    direction=[0,0]
-    yaw = 0
-    if (elapsed_time>=initial_pause and elapsed_time%modi<=modi_pr):
-        direction = generate_biased_vector(prev_direction, size, bias)
+    direction=[0,0] # set direction to no movement
+    yaw = 0 # no yaw adjustment
+    if (elapsed_time>=initial_pause and elapsed_time%modi<=modi_pr): # after start-off and in 2s interval
+        direction = generate_biased_vector(prev_direction, size, bias) # get a random new direction to move to
         print(f'time={elapsed_time}direction={direction} new direction angle {np.arctan2(direction[1], direction[0])/(0.5*np.pi):.2}')
-    if (elapsed_time>=initial_pause and elapsed_time%3<=(modi_pr) and elapsed_time%2>(modi_pr)):
-       yaw = np.random.uniform(0,np.pi)
+    if (elapsed_time>=initial_pause and elapsed_time%3<=(modi_pr) and elapsed_time%2>(modi_pr)): # after start-off and in 2s interval
+       yaw = np.random.uniform(0,np.pi) # turn around 
        print(f'new yaw={yaw}')
-    position, velocity = control.update(direction, yaw)
+    position, velocity = control.update(direction, yaw) # pass new state to control and update
     prev_direction = velocity 
-    network_state = network.update_network(velocity, get_next_state=True)
+    network_state = network.update_network(velocity, get_next_state=True) # update grid network with velocity
     position_log.append(position)
     #print(f'time={elapsed_time}')#, planned direction={direction}, actual direction={velocity}')
 

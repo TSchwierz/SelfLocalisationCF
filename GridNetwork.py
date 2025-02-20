@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.model_selection import cross_val_predict, cross_val_score, KFold
+from sklearn.linear_model import Ridge, LinearRegression
 
 class GridNetwork:
     
@@ -25,8 +27,7 @@ class GridNetwork:
 
         # random seed
         self.seed = Seed 
-        self.update_network_shape()        # Update network_activity shape based on initial gains
-        
+        self.update_network_shape()        # Update network_activity shape based on initial gains     
         
     def update_network_shape(self):
         '''Function to update the num of layers (gains) the network has'''
@@ -79,8 +80,7 @@ class GridNetwork:
                 distance_matrix[i,j] = dist
 
         print('Distance matrix initialized') 
-        return distance_matrix
-    
+        return distance_matrix    
 
     def weight_function(self, I, T, sigma):
         ''' 
@@ -98,7 +98,6 @@ class GridNetwork:
         
         return W
    
-
     def update_network(self, velocity_vec, get_next_state=False):
         '''This function is to simulate grid-cell activity in real time'''
         
@@ -140,9 +139,6 @@ class GridNetwork:
         rng = np.random.default_rng(seed=self.seed)
         self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
 
-
-    # PLOTS
-    # Creating the figure and defining gridspec
     def plot_frame_figure(self, positions_fig, network_activity, num_bins, arena_size=1):
         '''
         TODO in this funciton: 
@@ -204,4 +200,67 @@ class GridNetwork:
         fig.tight_layout(h_pad=3.0) # change spacing between plots
         # plt.savefig('/Users/.../Documents/Research_SPECS/Projects/Multimodal Grid Cells/Figure 1 frames/f1.png', bbox_inches='tight', dpi=300)
         plt.savefig()
+
+    # Function to fit a linear model from grid network activity with cross-validation
+    def fit_linear_model(self, activity_array, pos, return_shuffled=False, alpha=1.0, cv_folds=10):
+        '''
+        This function predicts the location of the object based on the activity level of the network
+        '''
+        np.random.seed(self.seed)
+
+        X = activity_array.reshape(activity_array.shape[0],-1)  # shape is (time, gains*N)
+        y = np.array(pos)  # shape is (time, 2)
+
+        # Initialize the Ridge regression model with specified alpha
+        model = Ridge(alpha=alpha)
+        # model = LinearRegression()
+
+        # Perform K-Fold cross-validation
+        kf = KFold(n_splits=cv_folds, shuffle=True, random_state=self.seed)
+
+        # Cross-validation scores for MSE
+        mse_scores = -cross_val_score(model, X, y, cv=kf, scoring='neg_mean_squared_error')
+        # Cross-validation scores for R2
+        r2_scores = cross_val_score(model, X, y, cv=kf, scoring='r2')
+        # Crossval estimates
+        y_pred = cross_val_predict(model, X, y, cv=kf)
+
+        # Compute the average and standard deviation of MSE and R2 scores across folds
+        mse_mean = round(np.mean(mse_scores), 5)
+        mse_std = round(np.std(mse_scores), 5)
+        r2_mean = round(np.mean(r2_scores), 5)
+        r2_std = round(np.std(r2_scores), 5)
+
+        if return_shuffled == False:
+            # return mse_mean, mse_std, r2_mean, r2_std
+            return X, y, y_pred, mse_mean, r2_mean
+
+        else:  # Fit linear model with shuffled labels
+            y_shuffled = y.copy()
+            np.random.shuffle(y_shuffled)  # Shuffle the labels
+            # Cross-validation scores for MSE with shuffled labels
+            mse_shuffled_scores = -cross_val_score(model, X, y_shuffled, cv=kf, scoring='neg_mean_squared_error')
+            # Cross-validation scores for R2 with shuffled labels
+            r2_shuffled_scores = cross_val_score(model, X, y_shuffled, cv=kf, scoring='r2')
+
+            # Compute the average and standard deviation of MSE and R2 scores for shuffled data
+            mse_shuffled_mean = round(np.mean(mse_shuffled_scores), 5)
+            mse_shuffled_std = round(np.std(mse_shuffled_scores), 5)
+            r2_shuffled_mean = round(np.mean(r2_shuffled_scores), 5)
+            r2_shuffled_std = round(np.std(r2_shuffled_scores), 5)
+
+            return X, y, y_pred, mse_mean, mse_shuffled_mean, r2_mean, r2_shuffled_mean
+
+    def plot_prediction_path(self, y, y_pred, mse_mean, r2_mean):
+        # Plot actual vs predicted trajectories (first 1000 timesteps)
+        plt.figure(figsize=(8, 6))
+        plt.plot(y[:1000, 0], y[:1000, 1], 'bo-', label="Actual Path", alpha=0.6) 
+        plt.plot(y_pred[:1000, 0], y_pred[:1000, 1], 'ro-', label="Predicted Path", alpha=0.6)
+        plt.xlabel("X Position")
+        plt.ylabel("Y Position")
+        plt.legend()
+        plt.title(f"Actual vs Predicted Positions. MSE={mse_mean}, Rˆ2={r2_mean}")
+        plt.show()
+
+
         
