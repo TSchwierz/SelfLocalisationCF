@@ -1,6 +1,6 @@
 import numpy as np
 from controller import Robot
-from pid_controller import pid_velocity_fixed_height_controller
+#from pid_controller import pid_velocity_fixed_height_controller
 from CFController import controller
 from GridNetwork import GridNetwork as gn
 
@@ -8,8 +8,8 @@ from GridNetwork import GridNetwork as gn
 FLYING_ATTITUDE = 1
 robot = Robot()
 timestep = int(robot.getBasicTimeStep())
-PID_crazyflie = pid_velocity_fixed_height_controller() # Crazyflie velocity PID controller
-control = controller(robot, PID_crazyflie, FLYING_ATTITUDE)
+#PID_crazyflie = pid_velocity_fixed_height_controller() # Crazyflie velocity PID controller
+control = controller(robot, FLYING_ATTITUDE)
 network = gn(9,10)
 
 def generate_biased_vector(previous_vector: np.ndarray, size: float, bias: float) -> np.ndarray:

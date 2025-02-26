@@ -9,7 +9,6 @@
 #  MIT Licence
 #
 #  Copyright (C) 2023 Bitcraze AB
-#
 
 """
 file: pid_controller.py

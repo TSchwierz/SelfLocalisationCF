@@ -259,7 +259,7 @@ class GridNetwork:
         plt.xlabel("X Position")
         plt.ylabel("Y Position")
         plt.legend()
-        plt.title(f"Actual vs Predicted Positions. MSE={mse_mean}, Rˆ2={r2_mean}")
+        plt.title(f'Actual vs Predicted Positions. MSE={mse_mean}, Rˆ2={r2_mean}')
         plt.show()
 
 
