@@ -1,6 +1,5 @@
 import numpy as np
 from controller import Robot
-#from pid_controller import pid_velocity_fixed_height_controller
 from CFController import controller
 from GridNetwork import GridNetwork as gn
 
@@ -8,7 +7,6 @@ from GridNetwork import GridNetwork as gn
 FLYING_ATTITUDE = 1
 robot = Robot()
 timestep = int(robot.getBasicTimeStep())
-#PID_crazyflie = pid_velocity_fixed_height_controller() # Crazyflie velocity PID controller
 control = controller(robot, FLYING_ATTITUDE)
 network = gn(9,10)
 
@@ -40,35 +38,52 @@ def generate_biased_vector(previous_vector: np.ndarray, size: float, bias: float
 
 # Simulation Constants
 initial_pause = 6 #(in s) amount of time at the start for the drone to lift off and stabilise
-modi = 2 #(in s) the interval with which a new direction commands should be given
+modi_d = 2 #(in s) the interval with which a new direction commands should be given
+modi_y = 1.5 #(in s) interval after which a new yaw direction is given
 modi_pr = 0.032 #(in s) setting this to 32ms (equal to the robot timestep) ensures only one new command per interval
 size = 0.1 # magnitude of movement vector
 bias = -1 # randomness of movement 
 
 # Initialising state variables
-prev_direction = np.array([0, 0])
+prev_direction = np.array([0, 0]) # initial direction of (xy)-movement
 direction = prev_direction 
 yaw = 0 # initial yaw
-network_state = 0 
 elapsed_time = 0
+network_state = []
 position_log = []
 
+print('Starting Simulation')
 # Main loop:
-while robot.step(timestep) != -1 and elapsed_time < 60*60: #1h max#:
+while robot.step(timestep) != -1 and elapsed_time < 360*4: # max time in hours #:
     elapsed_time += (timestep/1000) # ms to s
     direction=[0,0] # set direction to no movement
     yaw = 0 # no yaw adjustment
-    if (elapsed_time>=initial_pause and elapsed_time%modi<=modi_pr): # after start-off and in 2s interval
-        direction = generate_biased_vector(prev_direction, size, bias) # get a random new direction to move to
-        print(f'time={elapsed_time}direction={direction} new direction angle {np.arctan2(direction[1], direction[0])/(0.5*np.pi):.2}')
-    if (elapsed_time>=initial_pause and elapsed_time%3<=(modi_pr) and elapsed_time%2>(modi_pr)): # after start-off and in 2s interval
-       yaw = np.random.uniform(0,np.pi) # turn around 
-       print(f'new yaw={yaw}')
-    position, velocity = control.update(direction, yaw) # pass new state to control and update
-    prev_direction = velocity 
-    network_state = network.update_network(velocity, get_next_state=True) # update grid network with velocity
-    position_log.append(position)
-    #print(f'time={elapsed_time}')#, planned direction={direction}, actual direction={velocity}')
 
-print(f'Simulation finished at time={elapsed_time}\nGenerating image')
+    # new direction 
+    if (elapsed_time>=initial_pause and elapsed_time%modi_d<=modi_pr): # after start-off and in 2s interval
+        direction = generate_biased_vector(prev_direction, size, bias) # get a random new direction to move to
+        print(f'time={elapsed_time:.4}, direction={direction}, new direction angle {np.arctan2(direction[1], direction[0])/(0.5*np.pi):.2}')
+
+    # new yaw
+    if (elapsed_time>=initial_pause and elapsed_time%modi_y<=(modi_pr) and elapsed_time%modi_d>(modi_pr)): # after start-off and in modi_d (s) interval but not during translation
+       yaw = np.random.uniform(-np.pi,np.pi) # turn around by this value
+       print(f'time={elapsed_time:.4}, new yaw={yaw}')
+
+    position, velocity = control.update(direction, yaw) # pass new desired state to control and update
+    prev_direction = velocity 
+    network.update_network(velocity, get_next_state=False) # update grid network with velocity
+    position_log.append(position)
+    network_state.append(network.network_activity.copy())
+
+print(f'Simulation finished at time={elapsed_time/60:.0}minutes\nGenerating image')
+print(f'Position log (shape, min, max):{np.shape(position_log)}, {np.min(position_log)}, {np.max(position_log)}')
+print(f'Network (shape, min, max):{np.shape(network_state)}, {np.min(network_state)}, {np.max(network_state)}')
+
+# Plot the network activity
 network.plot_frame_figure(positions_fig=position_log, network_activity=network_state, num_bins=60)
+print('Saved activity plot\ncalculating prediction')
+
+# Predict position
+X, y, y_pred, mse_mean, r2_mean = network.fit_linear_model(network_state, position_log)
+network.plot_prediction_path(y, y_pred, mse_mean, r2_mean)
+print('Saved prediction plot')

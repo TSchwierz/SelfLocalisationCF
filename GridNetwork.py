@@ -1,4 +1,5 @@
-﻿import numpy as np
+﻿from math import isnan, nan
+import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import cross_val_predict, cross_val_score, KFold
 from sklearn.linear_model import Ridge, LinearRegression
@@ -111,16 +112,27 @@ class GridNetwork:
             self.W = W
             # Calculate activity using transfer function
             b_activity = self.network_activity[a, :]
-            b_activity += b_activity @ W
+            #print(f'w max={np.max(W)}')
+            #print(f'np.min/max(b_a)={np.min(b_activity)}/{np.max(b_activity)}')
+            b_activity = b_activity @ W # <- OVERFLOW HERE IN MATMUL
+            #          ^+= possible problem is the plus-assign
+            
             # Normalize activity
-            net_activity = ((1 - self.tau) * b_activity + self.tau * (b_activity / np.sum(self.network_activity[a, :])))
-            net_activity = b_activity
+            net_activity = ((1 - self.tau) * b_activity + self.tau * (b_activity / np.sum(self.network_activity)))
+            # problem is at end. should use all network activity. was using only current sheet  ->             ^[a, :]
+            #net_activity = b_activity  <- WHY WAS THIS HERE? JUST OVERRIDES PREVIOUS LINE
             net_activity[net_activity < 0] = 0 
-            net_activity = (net_activity - np.min(net_activity)) / (np.max(net_activity) - np.min(net_activity))
+            if (np.max(net_activity) != np.min(net_activity)): # normalise only if not all values identical
+                net_activity = (net_activity - np.min(net_activity)) / (np.max(net_activity) - np.min(net_activity)) # <- INVALID VALUE IN DIVIDE
+            #print(f'net activity min/max = {np.min(net_activity)}/{np.max(net_activity)}')
           
             if np.isnan(net_activity).any():
-                print(velocity_vec)
-                print(net_activity)
+                print(f'velocity:{velocity_vec}')
+                print(f'b_activity min/max/value:{np.min(b_activity)}/{np.max(b_activity)}/{b_activity}')
+                print(f'network activity:{net_activity}')
+                print(f'w/max/min={W}/{np.min(W)}/{np.max(W)}')
+                print(f"Row sum for gain {alpha}: {np.sum(W, axis=1)}")
+                print(f'np.max(net_a)={np.max(net_activity)}')
                 raise ValueError('check this out, activity is exploading')
             
             # save activity for each gain
@@ -139,13 +151,20 @@ class GridNetwork:
         rng = np.random.default_rng(seed=self.seed)
         self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
 
-    def plot_frame_figure(self, positions_fig, network_activity, num_bins, arena_size=1):
+    def plot_frame_figure(self, positions_fig, num_bins, **kwargs):
         '''
         TODO in this funciton: 
         - write documentation
         - center the gains wrt the plot (this is in case more or less gains are used, purely aesthetic)
             
             '''
+        arena_size=28 # 14 in each direction
+        network_activity = self.network_activity
+        if 'arena_size' in kwargs:
+            arena_size = kwargs['arena_size']      
+        if 'network_activity' in kwargs:
+            network_activity = kwargs['network_activity']
+
         fig = plt.figure(figsize=(13, 8))
         gs = fig.add_gridspec(2, 6, height_ratios=[1, 2.5], width_ratios=[1, 1, 1, 1, 1, 0.07]) # if I want to add colorbar
         # gs = fig.add_gridspec(2, 5, height_ratios=[1, 2.5], width_ratios=[1, 1, 1, 1, 1]) 
@@ -163,14 +182,17 @@ class GridNetwork:
             y_bins = np.linspace(0,arena_size,num_bins)
             heatmap = np.zeros((num_bins, num_bins))
 
-            # Iterate over positions and network_activity
+            # Iterate over positions and network_activity (Over time)
             for position, activity in zip(positions_fig, network_activity):
                 # x_index = int(position[0] * num_bins) # discretize positions into bins 
                 # y_index = int(position[1] * num_bins)
+                #print(f'pos_fig shape = {np.shape(positions_fig)}, position={position}')
                 x_index = np.digitize(position[0], x_bins) - 1
                 y_index = np.digitize(position[1], y_bins) - 1
-                heatmap[x_index, y_index] = max(heatmap[x_index, y_index], activity[a, 28]) # get max activity at each position of the heatmap (update fr rate)
-
+                #print(f'indexes= {x_index}+{y_index}, shape(heatmap)={np.shape(heatmap)}, shape(network[a, 1])={np.shape(activity[a, 1])}, {heatmap[x_index, y_index]}')
+                heatmap[x_index, y_index] = max(heatmap[x_index, y_index], activity[a].any())
+                #heatmap[x_index, y_index] = max(heatmap[x_index, y_index], activity[a, 28]) # get max activity at each position of the heatmap (update fr rate)
+                #                                          why the magic number 28? ^^^^^^^^  Activity is of shape (ngains, neurons) here
             im = heatmap_ax.imshow(heatmap.T, extent=[0, arena_size, 0, arena_size], origin='lower', vmax=1, vmin=0)
             heatmap_ax.set(title=f'Gain = {round(alpha, 2)}', xticks=[], yticks=[])
             # add labels left plot
@@ -185,7 +207,7 @@ class GridNetwork:
         colorbar.set_ticks([0, 0.5, 1])  # Set ticks at min, mid, and max values
         colorbar.set_ticklabels([f'{0:.2f}', f'{0.5:.2f}', f'{1:.2f}'])  # Set tick labels
 
-
+        positions_fig = np.array([positions_fig]) # enable numpy slicing
         # Adding subplot for the bottom row
         trajectory_ax = fig.add_subplot(gs[1, 1:4])  # Spanning 3 columns in the middle
         # Ag_fig.plot_trajectory(fig=fig, ax=trajectory_ax)
@@ -199,7 +221,7 @@ class GridNetwork:
         # Adjust layout
         fig.tight_layout(h_pad=3.0) # change spacing between plots
         # plt.savefig('/Users/.../Documents/Research_SPECS/Projects/Multimodal Grid Cells/Figure 1 frames/f1.png', bbox_inches='tight', dpi=300)
-        plt.savefig()
+        plt.savefig('result_activity_figure.png')
 
     # Function to fit a linear model from grid network activity with cross-validation
     def fit_linear_model(self, activity_array, pos, return_shuffled=False, alpha=1.0, cv_folds=10):
@@ -208,7 +230,7 @@ class GridNetwork:
         '''
         np.random.seed(self.seed)
 
-        X = activity_array.reshape(activity_array.shape[0],-1)  # shape is (time, gains*N)
+        X = np.array(activity_array).reshape(np.shape(activity_array)[0],-1)  # shape is (time, gains*N)
         y = np.array(pos)  # shape is (time, 2)
 
         # Initialize the Ridge regression model with specified alpha
@@ -260,7 +282,7 @@ class GridNetwork:
         plt.ylabel("Y Position")
         plt.legend()
         plt.title(f'Actual vs Predicted Positions. MSE={mse_mean}, Rˆ2={r2_mean}')
-        plt.show()
+        plt.savefig('result_prediction.png')
 
 
         
