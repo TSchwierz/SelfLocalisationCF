@@ -1,4 +1,4 @@
-import numpy as np
+﻿import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import cross_val_predict, cross_val_score, KFold
 from sklearn.linear_model import Ridge, LinearRegression
@@ -259,7 +259,7 @@ class GridNetwork:
         plt.xlabel("X Position")
         plt.ylabel("Y Position")
         plt.legend()
-        plt.title(f'Actual vs Predicted Positions. MSE={mse_mean}, R�2={r2_mean}')
+        plt.title(f'Actual vs Predicted Positions. MSE={mse_mean}, Rˆ2={r2_mean}')
         plt.show()
 
 
