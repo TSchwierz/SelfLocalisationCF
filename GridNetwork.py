@@ -152,18 +152,22 @@ class GridNetwork:
         self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
 
     def plot_frame_figure(self, positions_fig, num_bins, **kwargs):
-        '''
-        TODO in this funciton: 
-        - write documentation
-        - center the gains wrt the plot (this is in case more or less gains are used, purely aesthetic)
-            
-            '''
-        arena_size=28 # 14 in each direction
-        network_activity = self.network_activity
-        if 'arena_size' in kwargs:
-            arena_size = kwargs['arena_size']      
-        if 'network_activity' in kwargs:
-            network_activity = kwargs['network_activity']
+        """
+        Plots a heatmap of network activity at different gain levels and overlays the trajectory.
+
+        Parameters:
+        - positions_fig (array-like): List of (x, y) positions over time.
+        - num_bins (int): Number of bins for the heatmap.
+        - **kwargs: Optional parameters like 'arena_size' and 'network_activity'.
+
+        """
+        arena_size = kwargs.get('arena_size', 1)
+        network_activity = kwargs.get('network_activity', self.network_activity)
+
+        min_x = -arena_size
+        max_x = arena_size
+        min_y = -arena_size
+        max_y = arena_size
 
         fig = plt.figure(figsize=(13, 8))
         gs = fig.add_gridspec(2, 6, height_ratios=[1, 2.5], width_ratios=[1, 1, 1, 1, 1, 0.07]) # if I want to add colorbar
@@ -174,26 +178,27 @@ class GridNetwork:
         for a, alpha in enumerate(self.gains):
 
             heatmap_ax = fig.add_subplot(gs[0, a])
+            heatmap_ax.set_aspect('equal')
             # heatmap, _, _ = np.histogram2d(np.array(positions_fig)[:,0], np.array(positions_fig)[:,1], weights=np.array(network_activity)[:,a,28].flatten(), range=[[0,1], [0,1]], bins=60)
 
             # Initialize an empty heatmap
-            num_bins = num_bins
-            x_bins = np.linspace(0,arena_size,num_bins)
-            y_bins = np.linspace(0,arena_size,num_bins)
+            x_bins = np.linspace(min_x, max_x,num_bins)
+            y_bins = np.linspace(min_y, max_y,num_bins)
             heatmap = np.zeros((num_bins, num_bins))
 
             # Iterate over positions and network_activity (Over time)
             for position, activity in zip(positions_fig, network_activity):
-                # x_index = int(position[0] * num_bins) # discretize positions into bins 
-                # y_index = int(position[1] * num_bins)
-                #print(f'pos_fig shape = {np.shape(positions_fig)}, position={position}')
-                x_index = np.digitize(position[0], x_bins) - 1
-                y_index = np.digitize(position[1], y_bins) - 1
+                #x_index = np.digitize(position[0], x_bins) - 1
+                #y_index = np.digitize(position[1], y_bins) - 1
+                x_index = min(num_bins - 1, max(0, np.digitize(position[0], x_bins) - 1))
+                y_index = min(num_bins - 1, max(0, np.digitize(position[1], y_bins) - 1))
                 #print(f'indexes= {x_index}+{y_index}, shape(heatmap)={np.shape(heatmap)}, shape(network[a, 1])={np.shape(activity[a, 1])}, {heatmap[x_index, y_index]}')
-                heatmap[x_index, y_index] = max(heatmap[x_index, y_index], activity[a].any())
+                heatmap[x_index, y_index] = max(heatmap[x_index, y_index], np.max(activity[a]))
                 #heatmap[x_index, y_index] = max(heatmap[x_index, y_index], activity[a, 28]) # get max activity at each position of the heatmap (update fr rate)
                 #                                          why the magic number 28? ^^^^^^^^  Activity is of shape (ngains, neurons) here
-            im = heatmap_ax.imshow(heatmap.T, extent=[0, arena_size, 0, arena_size], origin='lower', vmax=1, vmin=0)
+
+            #im = heatmap_ax.imshow(heatmap.T, extent=[0, arena_size, 0, arena_size], origin='lower', vmax=1, vmin=0)
+            im = heatmap_ax.imshow(heatmap.T, origin='lower', extent=[min_x, max_x, min_y, max_y], vmax=1, vmin=0)
             heatmap_ax.set(title=f'Gain = {round(alpha, 2)}', xticks=[], yticks=[])
             # add labels left plot
             if a == 0:
@@ -207,21 +212,22 @@ class GridNetwork:
         colorbar.set_ticks([0, 0.5, 1])  # Set ticks at min, mid, and max values
         colorbar.set_ticklabels([f'{0:.2f}', f'{0.5:.2f}', f'{1:.2f}'])  # Set tick labels
 
-        positions_fig = np.array([positions_fig]) # enable numpy slicing
-        # Adding subplot for the bottom row
-        trajectory_ax = fig.add_subplot(gs[1, 1:4])  # Spanning 3 columns in the middle
-        # Ag_fig.plot_trajectory(fig=fig, ax=trajectory_ax)
+        positions_fig = np.array(positions_fig) # enable numpy slicing      
+        trajectory_ax = fig.add_subplot(gs[1, 1:4])  # Adding subplot for the bottom row # Spanning 3 columns in the middle
         trajectory_ax.plot(positions_fig[:, 0], positions_fig[:, 1], alpha=0.7, color='purple')
-
         trajectory_ax.set_title('Arena', fontsize=20)
+        trajectory_ax.set_aspect('equal')
 
-        # fig.suptitle('Neuron firing rate', fontsize=25, y=1.01)
-        # fig.supxlabel(f'Time: {round(Ag_fig.t,2)}s')
 
-        # Adjust layout
-        fig.tight_layout(h_pad=3.0) # change spacing between plots
-        # plt.savefig('/Users/.../Documents/Research_SPECS/Projects/Multimodal Grid Cells/Figure 1 frames/f1.png', bbox_inches='tight', dpi=300)
-        plt.savefig('result_activity_figure.png')
+        fig.tight_layout(h_pad=3.0) # Adjust layout # change spacing between plots
+        plt.savefig('Results\\result_activity_figure.png', format='png') # save in relative folder Results in Source/Repos/SelfLocalisationCF
+        
+        #print(f'positions_fig shape: {np.shape(positions_fig)} , type {type(positions_fig)}')
+        #print("network_activity shape:", np.shape(network_activity))
+        #print("x_bins:", x_bins)
+        #print("y_bins:", y_bins)
+        #print("Heatmap max value:", np.max(heatmap))
+
 
     # Function to fit a linear model from grid network activity with cross-validation
     def fit_linear_model(self, activity_array, pos, return_shuffled=False, alpha=1.0, cv_folds=10):
@@ -275,14 +281,15 @@ class GridNetwork:
 
     def plot_prediction_path(self, y, y_pred, mse_mean, r2_mean):
         # Plot actual vs predicted trajectories (first 1000 timesteps)
+        size = int(len(y)/2)
         plt.figure(figsize=(8, 6))
-        plt.plot(y[:1000, 0], y[:1000, 1], 'bo-', label="Actual Path", alpha=0.6) 
-        plt.plot(y_pred[:1000, 0], y_pred[:1000, 1], 'ro-', label="Predicted Path", alpha=0.6)
+        plt.plot(y[-size:, 0], y[-size:, 1], 'bo-', label="Actual Path", alpha=0.6) 
+        plt.plot(y_pred[-size:, 0], y_pred[-size:, 1], 'ro-', label="Predicted Path", alpha=0.6)
         plt.xlabel("X Position")
         plt.ylabel("Y Position")
         plt.legend()
         plt.title(f'Actual vs Predicted Positions. MSE={mse_mean}, Rˆ2={r2_mean}')
-        plt.savefig('result_prediction.png')
+        plt.savefig('Results\\result_prediction.png', format='png')
 
 
         

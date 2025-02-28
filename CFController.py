@@ -1,4 +1,5 @@
 import numpy as np
+#from SelfLocalisationCF import FLYING_ATTITUDE
 from controller import Robot
 from math import cos, sin
 
@@ -28,10 +29,11 @@ class controller():
         self.past_y = 0
         self.past_time = 0
         self.height_desired = FLYING_ATTITUDE
+        self.alt_cmd = FLYING_ATTITUDE
 
         print('Controller initialised')
 
-    def update(self, direction, yaw_change):
+    def update(self, direction, yaw_change, height_change):
         dt = self.robot.getTime() - self.past_time
         actual_state = {}
 
@@ -53,19 +55,21 @@ class controller():
         v_y = - v_x * sin_yaw + v_y * cos_yaw
 
         # Initialize values
-        desired_state = [0, 0, 0, 0]
+        #desired_state = [0, 0, 0, 0]
         forward_desired, sideways_desired = direction
         #np.clip([forward_desired, sideways_desired], -0.5, 0.5)
         
         #print(f'yaw={yaw}, rate={yaw_rate}')
         yaw_rate_desired = yaw_change # if change is zero, stay at current yaw
 
-        height_diff_desired = 0      
-        self.height_desired += height_diff_desired * dt
+        #self.height_desired += height_change
+        height_diff_desired = altitude - self.height_desired      
+        #self.alt_cmd += height_diff_desired * dt
+        self.alt_cmd = self.height_desired
 
         # PID velocity controller with fixed height
         motor_power = self.pid_model.pid(dt, forward_desired, sideways_desired,
-                                        yaw_rate_desired, self.height_desired,
+                                        yaw_rate_desired, self.alt_cmd,
                                         roll, pitch, yaw_rate,
                                         altitude, v_x, v_y)
 
@@ -79,7 +83,7 @@ class controller():
         self.past_x = x
         self.past_y = y
 
-        return [x, y], [v_x, v_y]
+        return [x, y], [v_x, v_y], altitude
 
     def get_velocity(self):
         pos = self.gps.getValues()[0:1]

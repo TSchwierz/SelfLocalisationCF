@@ -1,7 +1,7 @@
 # SelfLocalisationCF
 This projects aims to implements self localisation in the crazyflie drone as simulated in the webots envinornment (Details:https://www.bitcraze.io/documentation/tutorials/getting-started-with-simulation/)
 
-Files:
+## Files:
  - SelfLocalisationCF.py
 	- This is the main script and controlflow of the program.
 - CFController.py
@@ -16,8 +16,13 @@ Files:
 	- this is the world file used by webots to construct the environment.
 - runSLC.bat
 	- A batch file that can be run in the cmd to start the controller in webots
+- Results
+	- In this folder are the most recent plots of the results
 
-# Latest Change:
+## Latest Change:
+28.02.: Introduced a new function that adds a drift towards the origin to new generated translational movement. It has radial dependancy.
+28.02.: Worked on the plotting functions to discern error sources, generelised the code
+28.02.: Implemented a new algorithm to generate random walking. ALso added boundary detection and redirection, but this is still not working optimal everytime
 27.02.: Debuged the program. It finally executes completly without errors and produces the two plots at the end.
 27.02.: Changed some lines in the GridNetwork code, which were sources of overflow errors.<br>
 26.02.: Included the changes added by raimon to decode the location. Also moved the pid code to the controller, which depricates the pid_controller file, hopefully reducing the complexity of the project.<br>
@@ -25,9 +30,9 @@ Files:
 15.02.: Corrected the yaw behaviour. Previously the yaw of the drone would be oscillating between two values. It now correctly stays in place until a new rotation command is given. The drone now stabily moves for large simulated times (>1h), but seems to have a preferrence of staying within a certain quadrand.
 
 
-Current Tasks (no particular order):
-1. when generating a new direction, check for proximity to walls using gps and create a heavy bias for direction pointing away from them.
-2. generate proper figures after (during) execution of the simulation
-3. change random walk generation. Every (other) second the drone should either do a translation, rotation or change in altidute, decided by random chance.
-4. The plot generated to show the network activity is rather empty. This could be because of limited time spend in a big environment. check this.
-1. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code
+## Current Tasks (no particular order):
+1. generate proper figures after (during) execution of the simulation
+2. The plot generated to show the network activity is rather empty. This could be because of limited time spend in a big environment. check this.
+3. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code
+4. Add altitude control to the random walk and GridNetwork.
+5. Check the boundary avoidance for possible error sources and fix.
