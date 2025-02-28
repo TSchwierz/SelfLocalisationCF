@@ -20,10 +20,10 @@ This projects aims to implements self localisation in the crazyflie drone as sim
 	- In this folder are the most recent plots of the results
 
 ## Latest Change:
-28.02.: Introduced a new function that adds a drift towards the origin to new generated translational movement. It has radial dependancy.
-28.02.: Worked on the plotting functions to discern error sources, generelised the code
-28.02.: Implemented a new algorithm to generate random walking. ALso added boundary detection and redirection, but this is still not working optimal everytime
-27.02.: Debuged the program. It finally executes completly without errors and produces the two plots at the end.
+28.02.: Introduced a new function that adds a drift towards the origin to new generated translational movement. It has radial dependancy.<br>
+28.02.: Worked on the plotting functions to discern error sources, generelised the code<br>
+28.02.: Implemented a new algorithm to generate random walking. ALso added boundary detection and redirection, but this is still not working optimal everytime<br>
+27.02.: Debuged the program. It finally executes completly without errors and produces the two plots at the end.<br>
 27.02.: Changed some lines in the GridNetwork code, which were sources of overflow errors.<br>
 26.02.: Included the changes added by raimon to decode the location. Also moved the pid code to the controller, which depricates the pid_controller file, hopefully reducing the complexity of the project.<br>
 15.02.: Added code to update the grid network on every timestep. It seems that the network is prone to overflow issues after just a couple of timesteps(~20sec).<br>
