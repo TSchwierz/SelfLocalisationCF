@@ -1,7 +1,7 @@
 import numpy as np
 #from SelfLocalisationCF import FLYING_ATTITUDE
 from controller import Robot
-from math import cos, sin
+from numpy import cos, sin
 
 class controller():
     def __init__(self, robot_, FLYING_ATTITUDE = 1):
@@ -27,6 +27,7 @@ class controller():
         # Initialize variables
         self.past_x = 0
         self.past_y = 0
+        self.past_pos_xy = np.array([0, 0])
         self.past_time = 0
         self.height_desired = FLYING_ATTITUDE
         self.alt_cmd = FLYING_ATTITUDE
@@ -42,23 +43,35 @@ class controller():
         pitch = self.imu.getRollPitchYaw()[1]
         yaw = self.imu.getRollPitchYaw()[2]
         yaw_rate = self.gyro.getValues()[2]
+        pos_xy = np.array(self.gps.getValues())[:2]
+        v_abs = (pos_xy - self.past_pos_xy)/dt
+        '''
         x = self.gps.getValues()[0]
         v_x = (x - self.past_x)/dt
         y = self.gps.getValues()[1]
         v_y = (y - self.past_y)/dt
+        '''
         altitude = self.gps.getValues()[2]
 
-        # Get body fixed velocities
-        cos_yaw = cos(yaw)
-        sin_yaw = sin(yaw)
-        v_x = v_x * cos_yaw + v_y * sin_yaw
-        v_y = - v_x * sin_yaw + v_y * cos_yaw
+        #print(f'pos={pos_xy}, v = {v}, altitude={altitude}')
+        #print(f'current yaw: {yaw}, yaw rate: {yaw_rate}')
 
+        # Get body fixed velocities
+        rotation_matrix = np.array([[cos(yaw), sin(yaw)], [-sin(yaw), cos(yaw)]]) #clockwise
+        #v = np.array([v_x, v_y])
+        v_rel = rotation_matrix@v_abs
+        v_x, v_y = v_rel
+        #cos_yaw = cos(yaw)
+        #sin_yaw = sin(yaw)
+        #v_x = v_x * cos_yaw + v_y * sin_yaw
+        #v_y = - v_x * sin_yaw + v_y * cos_yaw
+        
+        #x_des, y_des = direction
         # Initialize values
         #desired_state = [0, 0, 0, 0]
-        forward_desired, sideways_desired = direction
+        forward_desired, sideways_desired = rotation_matrix@direction
         #np.clip([forward_desired, sideways_desired], -0.5, 0.5)
-        
+        #print(f'Vx={v_x}, Vy={v_y}, forward={forward_desired}, side={sideways_desired}')
         #print(f'yaw={yaw}, rate={yaw_rate}')
         yaw_rate_desired = yaw_change # if change is zero, stay at current yaw
 
@@ -80,10 +93,11 @@ class controller():
             motor.setVelocity(power)
 
         self.past_time = self.robot.getTime()
-        self.past_x = x
-        self.past_y = y
+        #self.past_x = x
+        #self.past_y = y
+        self.past_pos_xy = pos_xy
 
-        return [x, y], [v_x, v_y], altitude
+        return pos_xy, v_abs, altitude #[x, y], [v_x, v_y], altitude
 
     def get_velocity(self):
         pos = self.gps.getValues()[0:1]
