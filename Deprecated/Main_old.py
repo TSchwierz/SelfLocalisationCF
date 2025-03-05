@@ -187,7 +187,7 @@ print(f' - Arena size (min, max, value) = {np.min(position, axis=0)}, {np.max(po
 
 # Plot the network activity
 print('Generating Images')
-network.plot_frame_figure(positions_fig=position_log, network_activity=network_state, num_bins=60, arena_size=arena_size)
+network.plot_frame_figure(positions_array=position_log, network_activity=network_state, num_bins=60, arena_size=arena_size)
 print(' - Saved activity plot\ncalculating prediction')
 
 # Predict position

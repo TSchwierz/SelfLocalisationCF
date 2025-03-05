@@ -151,7 +151,7 @@ class GridNetwork:
         rng = np.random.default_rng(seed=self.seed)
         self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
 
-    def plot_frame_figure(self, positions_fig, num_bins, **kwargs):
+    def plot_frame_figure(self, positions_array, num_bins, **kwargs):
         """
         Plots a heatmap of network activity at different gain levels and overlays the trajectory.
 
@@ -187,13 +187,13 @@ class GridNetwork:
             heatmap = np.zeros((num_bins, num_bins))
 
             # Iterate over positions and network_activity (Over time)
-            for position, activity in zip(positions_fig, network_activity):
-                #x_index = np.digitize(position[0], x_bins) - 1
-                #y_index = np.digitize(position[1], y_bins) - 1
-                x_index = min(num_bins - 1, max(0, np.digitize(position[0], x_bins) - 1))
-                y_index = min(num_bins - 1, max(0, np.digitize(position[1], y_bins) - 1))
+            for position, activity in zip(positions_array, network_activity):
+                x_index = np.digitize(position[0], x_bins) - 1
+                y_index = np.digitize(position[1], y_bins) - 1
+                #x_index = min(num_bins - 1, max(0, np.digitize(position[0], x_bins) - 1))
+                #y_index = min(num_bins - 1, max(0, np.digitize(position[1], y_bins) - 1))
                 #print(f'indexes= {x_index}+{y_index}, shape(heatmap)={np.shape(heatmap)}, shape(network[a, 1])={np.shape(activity[a, 1])}, {heatmap[x_index, y_index]}')
-                heatmap[x_index, y_index] = max(heatmap[x_index, y_index], np.max(activity[a]))
+                heatmap[x_index, y_index] = max(heatmap[x_index, y_index], np.mean(activity[a]))
                 #heatmap[x_index, y_index] = max(heatmap[x_index, y_index], activity[a, 28]) # get max activity at each position of the heatmap (update fr rate)
                 #                                          why the magic number 28? ^^^^^^^^  Activity is of shape (ngains, neurons) here
 
@@ -212,9 +212,9 @@ class GridNetwork:
         colorbar.set_ticks([0, 0.5, 1])  # Set ticks at min, mid, and max values
         colorbar.set_ticklabels([f'{0:.2f}', f'{0.5:.2f}', f'{1:.2f}'])  # Set tick labels
 
-        positions_fig = np.array(positions_fig) # enable numpy slicing      
+        positions_array = np.array(positions_array) # enable numpy slicing      
         trajectory_ax = fig.add_subplot(gs[1, 1:4])  # Adding subplot for the bottom row # Spanning 3 columns in the middle
-        trajectory_ax.plot(positions_fig[:, 0], positions_fig[:, 1], alpha=0.7, color='purple')
+        trajectory_ax.plot(positions_array[:, 0], positions_array[:, 1], alpha=0.7, color='purple')
         trajectory_ax.set_title('Arena', fontsize=20)
         trajectory_ax.set_aspect('equal')
 

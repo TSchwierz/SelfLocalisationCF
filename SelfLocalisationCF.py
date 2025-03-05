@@ -99,7 +99,7 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.1):
         current_angle = np.arctan2(current_direction[1], current_direction[0])
     
     # Add a small random angular change; using sqrt(dt) for time scaling
-    d_angle = np.random.normal(0, angular_std*np.pi * np.sqrt(dt))
+    d_angle = np.random.normal(0, angular_std*np.pi) #* np.sqrt(dt))
     new_angle = current_angle + d_angle
     # Ensure the angle remains in the interval (-pi, pi)
     new_angle = (new_angle + np.pi) % (2 * np.pi) - np.pi
@@ -112,7 +112,7 @@ def main():
     timestep_ms = int(robot.getBasicTimeStep())
     dt = timestep_ms / 1000.0  # Convert timestep to seconds
     controller = DroneController(robot, FLYING_ATTITUDE)
-    grid_network = GridNetwork(9, 10)
+    grid_network = GridNetwork(12, 12)
     
     # Initialize state variables
     previous_direction = np.array([0, 0])  # Initial xy movement direction
@@ -124,11 +124,16 @@ def main():
     position_log = []
     current_position = np.array([0, 0])
     
+    MAX_SIMULATION_TIME = 3600 * 0.1 # 1h in seconds * amount of hours
+    UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
     print('Starting Simulation')
     # Main loop: run until simulation termination signal or time limit reached
-    while robot.step(timestep_ms) != -1 and elapsed_time < 360 * 10:
+    while robot.step(timestep_ms) != -1 and elapsed_time < MAX_SIMULATION_TIME:
         elapsed_time += dt  # Update elapsed time in seconds
         
+        if (elapsed_time%UPDATE_INTERVAL<= dt):
+            print(f'elapsed time {elapsed_time/60:.0} of {MAX_SIMULATION_TIME/60} minutes {100*elapsed_time/MAX_SIMULATION_TIME}%')
+
         # Default movement: no change unless a new command is issued at the interval
         movement_direction = np.array([0, 0])
         yaw = 0
@@ -138,7 +143,7 @@ def main():
             target_altitude = altitude  # Here altitude is kept constant; can be randomized if desired
             
             # Update xy-direction using a small-angle random walk
-            smooth_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=1)
+            smooth_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.33)
             # Add drift toward the arena center
             drift = compute_drift_vector(np.concatenate((current_position, [altitude])))
             movement_direction = smooth_direction + drift
@@ -150,7 +155,9 @@ def main():
             # Adjust the movement to respect arena boundaries
             movement_direction[:2], target_altitude = adjust_for_boundaries(ARENA_BOUNDARIES, current_3d_position, movement_3d)
 
+            #movement_direction = (velocity + movement_direction)/2 # use the average between new direction and current velocity for smoothness
             previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
+            #yaw += 0.2
         
         # Update the drone's state with the new movement command
         current_position, velocity, altitude = controller.update(movement_direction, yaw, target_altitude)       
@@ -170,7 +177,7 @@ def main():
     
     # Visualize the network activity and prediction of the drone's path
     print('Generating Images...')
-    grid_network.plot_frame_figure(positions_fig=position_log, network_activity=network_states, num_bins=60, arena_size=arena_size)
+    grid_network.plot_frame_figure(positions_array=position_log, network_activity=network_states, num_bins=60, arena_size=arena_size)
     print('Saved activity plot\nCalculating prediction...')
     
     # Predict the position using a linear model and plot the results
