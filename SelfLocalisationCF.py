@@ -1,196 +1,182 @@
+"""
+Drone Simulation Script
+-----------------------
+This script simulates a drone's movement within a defined arena. The drone's motion is determined by:
+- A smooth random angular walk that produces small, continuous turns.
+- An optional drift component that nudges the drone toward the arena center.
+- A boundary correction mechanism that gently clips the movement to remain within the arena.
+
+The simulation logs the drone's position and grid network activity, then visualizes the movement and 
+predicts the drone's path using a linear model.
+"""
+
 import numpy as np
 from controller import Robot
-from DroneController import DroneController as dc
-from GridNetwork import GridNetwork as gn
+from DroneController import DroneController
+from GridNetwork import GridNetwork
 
-# Initialise needed instances
-FLYING_ATTITUDE = 1
-robot = Robot()
-timestep = int(robot.getBasicTimeStep())
-control = dc(robot, FLYING_ATTITUDE)
-network = gn(9,10)
-'''
-def generate_biased_vector(previous_vector: np.ndarray, size: float, bias: float) -> np.ndarray:
+# ---------------- Simulation Parameters ----------------
+FLYING_ATTITUDE = 1              # Base altitude (z-value) for flying
+INITIAL_PAUSE = 6                # Time (in seconds) for the drone to lift off and stabilize
+COMMAND_INTERVAL = 1             # Interval (in seconds) between new movement commands
+COMMAND_TOLERANCE = 0.032        # Tolerance (in seconds) for command timing
+MOVEMENT_MAGNITUDE = 1.0         # Magnitude of the movement vector in the xy-plane
+DRIFT_COEFFICIENT = 0.03         # Lowered drift coefficient to reduce abrupt corrections
+ARENA_BOUNDARIES = np.array([[-4.8, 4.8],  # x boundaries
+                             [-4.8, 4.8],  # y boundaries
+                             [0, 4]])      # z boundaries
+
+# ---------------- Helper Functions ----------------
+def compute_drift_vector(position, drift_coefficient=DRIFT_COEFFICIENT, arena_radius=5):
     """
-    Generates a new vector in the xy-plane with a given magnitude (size).
-    The direction is Gaussian distributed around the angle of the previous vector.
-    The bias determines the tendency to keep the new direction aligned with the previous one.
-    If the bias is lower than 0, the new angle will be drawn from a uniform distribution.
+    Compute a drift vector that nudges the drone toward the arena center.
 
-    :param previous_vector: np.ndarray, the previous vector in the xy-plane (2D array-like)
-    :param size: float, the magnitude of the new vector
-    :param bias: float, a value between -inf and 1 determining the tendency to align with the previous vector
-    :return: np.ndarray, the new generated vector in xy-space
+    :param position: Current 3D position [x, y, z] of the drone.
+    :param drift_coefficient: Scalar controlling the strength of the drift.
+    :param arena_radius: Effective arena radius used for scaling.
+    :return: A 2D drift vector for the xy-plane.
     """
-    bias = np.clip(bias, -1, 1) # ensures the bias is in the correct range
-
-    if np.linalg.norm(previous_vector) == 0: # if previous_vector is zero (no direction)
-        base_angle = np.random.uniform(-np.pi, np.pi)
+    current_xy = np.array(position[:2])
+    distance = np.linalg.norm(current_xy)
+    if distance > 0:
+        drift_direction = -current_xy / distance
     else:
-        base_angle = np.arctan2(previous_vector[1], previous_vector[0])
+        drift_direction = np.zeros(2)
+    # Scale drift proportional to how far out the drone is (relative to arena_radius)
+    return drift_direction * drift_coefficient * (distance / arena_radius)
 
-    if bias < 0.0:
-        new_angle = np.random.uniform(-np.pi, np.pi)
-    else:
-        sigma = (1 - bias) * np.pi  # Standard deviation for the Gaussian spread
-        new_angle = np.random.normal(base_angle, sigma) #% (2 * np.pi) # Sample a new angle from a Gaussian distribution centered around base_angle
-    
-    new_vector = np.array([np.cos(new_angle), np.sin(new_angle)]) * size # Convert polar to Cartesian coordinates
-    return new_vector
-
-def generate_new_yaw(bias=0):
+def adjust_for_boundaries(boundaries, position, movement_vector):
     """
-    Generate a random angle in the range (-pi, pi) based on a bias parameter.
-    
-    - If bias is 1, the angle is highly likely to be near 0.
-    - If bias is 0, the angle follows an approximately uniform distribution.
-    - If bias is -1, the angle is highly likely to be near -pi/2 or pi/2.
-    
-    :param bias: A float between -1 and 1 controlling the distribution bias.
-    :return: A float representing an angle in the range (-pi, pi).
+    Adjust the movement vector if the new position would exceed the arena boundaries.
+
+    Rather than reversing the entire movement, this function clips the movement such that the drone
+    ends exactly at the boundary if it would otherwise overshoot.
+
+    :param boundaries: Array of shape (3, 2) with lower and upper bounds for x, y, and z.
+    :param position: Current 3D position of the drone.
+    :param movement_vector: Proposed 3D movement vector [dx, dy, dz].
+    :return: Tuple (adjusted 2D movement vector, adjusted z-component).
     """
-    bias = np.clip(bias, -1, 1)  # Ensure bias is within valid range
+    new_position = position + movement_vector
+    adjusted_vector = movement_vector.copy()
+    lower_bounds, upper_bounds = boundaries[:, 0], boundaries[:, 1]
     
-    # Mixture of distributions based on bias
-    if bias == 0:
-        return np.random.uniform(-np.pi, np.pi)  # Uniform distribution
-    
-    # Create a probability distribution that smoothly varies with bias
-    if bias > 0:
-        scale = 1 - bias  # Control spread around 0
-        angle = np.random.normal(0, scale * np.pi)  # Gaussian around 0
-    else:
-        scale = 1 + bias  # Control spread around +-pi/2
-        peak_choice = np.random.choice([-np.pi/2, np.pi/2])  # Pick a peak
-        angle = np.random.normal(peak_choice, scale * np.pi / 2)
-    
-    # Ensure angle remains in (-pi, pi)
-    return (angle + np.pi) % (2 * np.pi) - np.pi
-'''
-def drift_vector(position, drift_coefficient=0.01, arena_radius=5):
-     # Compute the drift toward the origin
-     current_xy = np.array(position[:2])
-     distance = np.linalg.norm(current_xy)
-     if distance != 0:
-        # The drift direction is opposite to the current position vector
-        drift_direction = -current_xy #/ distance
-     else:
-        drift_direction = np.array([0, 0])
-    
-     return drift_direction * drift_coefficient * (distance/arena_radius)
+    for i in range(3):
+        if new_position[i] < lower_bounds[i]:
+            # Move only as much as needed to hit the lower bound
+            adjusted_vector[i] = lower_bounds[i] - position[i]
+        elif new_position[i] > upper_bounds[i]:
+            # Move only as much as needed to hit the upper bound
+            adjusted_vector[i] = upper_bounds[i] - position[i]
+    return adjusted_vector[:2], adjusted_vector[2]
 
-def check_for_boundaries(boundaries, position, move_towards):
-    new_pos = position + move_towards  # Compute new position
-    lower_bounds, upper_bounds = boundaries[:, 0], boundaries[:, 1]  # Extract lower & upper bounds
+def get_new_altitude():
+    """
+    Generate a new altitude based on a normal distribution centered around FLYING_ATTITUDE.
     
-    # Check if new_pos is outside boundaries
-    out_of_bounds = (new_pos < lower_bounds) | (new_pos > upper_bounds)
-    move_towards[out_of_bounds] *= -0.5  # reverse (and scale down) if out-of-bounds
-    if (np.sum(out_of_bounds)>0):
-        print(f'Boundary Proximity! mask = {out_of_bounds}, new vector = {move_towards}')
-
-    return move_towards[:2], move_towards[2]  # Return updated direction & height
-
-def generate_new_height():
+    :return: A new altitude value.
+    """
     return np.random.normal(FLYING_ATTITUDE, 0.25)
 
-def new_direction(v_old, size, dt):
-    angle_old = np.arctan2(v_old[1], v_old[0])
-    # Update using an Ornstein-Uhlenbeck process
-    theta=1.0
-    mu=0
-    sigma=0.1   
-    angle_new = angle_old + theta * (mu - angle_old) * dt + sigma * np.sqrt(dt) * np.random.normal()
-    return np.array([np.cos(angle_new), np.sin(angle_new)]) * size
-
-
-# Simulation Constants
-initial_pause = 6 #(in s) amount of time at the start for the drone to lift off and stabilise
-#modi_d = 2 #(in s) the interval with which a new direction commands should be given
-#modi_y = 1.5 #(in s) interval after which a new yaw direction is given
-modi_pr = 0.032 #(in s) setting this to 32ms (equal to the robot timestep) ensures only one new command per interval
-modi = 1 #(s) time between two movement commands
-size = 1.0 # magnitude of movement vector
-#bias_d = 0.45 # (-1, 1) randomness of movement direction
-#bias_y = 0 # (-1, 1) randomness of rotation angle
-drift_coef = 0.05  # adjust new directions to point more towards the origin
-choices = ['translation', 'rotation', 'altitude']
-p_choices = [1.0, 0.0, 0.0]
-boundaries = np.array([[-4.8, 4.8],[-4.8, 4.8],[0, 4]]) # [[-x, +x][-y, +y][z=0, z=max]]
-
-if sum(p_choices) != 1.0:
-    raise ValueError("Probabilities should add to 1!")
-
-# Initialising state variables
-prev_direction = np.array([0, 0]) # initial direction of (xy)-movement
-direction = prev_direction 
-yaw = 0 # initial yaw
-altitude = FLYING_ATTITUDE
-height = altitude
-elapsed_time = 0
-network_state = []
-position_log = []
-position = np.array([0, 0])
-
-print('Starting Simulation')
-# --------- Main loop: ------------
-while robot.step(timestep) != -1 and elapsed_time < 360*10: # max time in hours #:
-    elapsed_time += (timestep/1000) # ms to s
-    direction=[0,0] # set direction to no movement
-    yaw = 0 # no yaw adjustment
+def update_direction(current_direction, magnitude, dt, angular_std=0.1):
+    """
+    Update the drone's movement direction using a small random angular increment.
     
-    if (elapsed_time >= initial_pause and elapsed_time%modi<=modi_pr):
-        height = altitude;
-        action = np.random.choice(choices, p=p_choices)
-        match action:
-            case 'translation':
-                aux_normal = new_direction(prev_direction, size, timestep) #generate_biased_vector(prev_direction, size, bias_d)
-                aux_drift = drift_vector(position, drift_coef)
-                #direction = generate_biased_vector(prev_direction, size, bias_d) + drift_vector(position, drift_coef)
-                direction = aux_normal + aux_drift
-                print(f'Translation (normal+drift): {aux_normal}+{aux_drift}')
-            case 'rotation':
-                #yaw = generate_new_yaw(bias=bias_y)
-                print('Deprecated yaw adjustment')
-            case 'altitude':
-                height = generate_new_height()
+    This function implements a simple random walk in the angular domain. At each update, the current
+    angle is perturbed by a small random value (scaled by sqrt(dt) for consistency with time resolution),
+    producing smooth and continuous changes in the movement direction.
 
-        # construct 3d position from [x y] and z
-        pos_3d = np.concatenate((position, np.array([altitude])))
-        move_to = np.concatenate((direction, np.array([height]))) 
-        direction, height = check_for_boundaries(boundaries, pos_3d, move_to) # turn movement if it would collide with wall
+    :param current_direction: Current 2D movement vector.
+    :param magnitude: Desired magnitude of the new movement vector.
+    :param dt: Time step (in seconds).
+    :param angular_std: Standard deviation of the angular change (in percentage of pi).
+    :return: Updated 2D movement vector with the specified magnitude.
+    """
+    # If the current direction is nearly zero, choose a random initial angle
+    if np.linalg.norm(current_direction) < 1e-6:
+        current_angle = np.random.uniform(-np.pi, np.pi)
+    else:
+        current_angle = np.arctan2(current_direction[1], current_direction[0])
+    
+    # Add a small random angular change; using sqrt(dt) for time scaling
+    d_angle = np.random.normal(0, angular_std*np.pi * np.sqrt(dt))
+    new_angle = current_angle + d_angle
+    # Ensure the angle remains in the interval (-pi, pi)
+    new_angle = (new_angle + np.pi) % (2 * np.pi) - np.pi
+    return np.array([np.cos(new_angle), np.sin(new_angle)]) * magnitude
 
-    ''' Old deprecated method
-    # new direction 
-    if (elapsed_time>=initial_pause and elapsed_time%modi_d<=modi_pr): # after start-off and in 2s interval
-        direction = generate_biased_vector(prev_direction, size, bias) # get a random new direction to move to
-        print(f'time={elapsed_time:.4}, direction={direction}, new direction angle {np.arctan2(direction[1], direction[0])/(0.5*np.pi):.2}')
+# ---------------- Main Simulation Loop ----------------
+def main():
+    # Initialize simulation components
+    robot = Robot()
+    timestep_ms = int(robot.getBasicTimeStep())
+    dt = timestep_ms / 1000.0  # Convert timestep to seconds
+    controller = DroneController(robot, FLYING_ATTITUDE)
+    grid_network = GridNetwork(9, 10)
+    
+    # Initialize state variables
+    previous_direction = np.array([0, 0])  # Initial xy movement direction
+    yaw = 0                              # Initial yaw (no rotation)
+    altitude = FLYING_ATTITUDE           # Constant base altitude
+    target_altitude = altitude           # Target altitude (may be updated)
+    elapsed_time = 0
+    network_states = []
+    position_log = []
+    current_position = np.array([0, 0])
+    
+    print('Starting Simulation')
+    # Main loop: run until simulation termination signal or time limit reached
+    while robot.step(timestep_ms) != -1 and elapsed_time < 360 * 10:
+        elapsed_time += dt  # Update elapsed time in seconds
+        
+        # Default movement: no change unless a new command is issued at the interval
+        movement_direction = np.array([0, 0])
+        yaw = 0
+        
+        # Issue a new movement command at defined intervals (after the initial pause)
+        if elapsed_time >= INITIAL_PAUSE and (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
+            target_altitude = altitude  # Here altitude is kept constant; can be randomized if desired
+            
+            # Update xy-direction using a small-angle random walk
+            smooth_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=1)
+            # Add drift toward the arena center
+            drift = compute_drift_vector(np.concatenate((current_position, [altitude])))
+            movement_direction = smooth_direction + drift
+            
+            # Form the complete 3D movement vector
+            current_3d_position = np.concatenate((current_position, [altitude]))
+            movement_3d = np.concatenate((movement_direction, [target_altitude]))
+            
+            # Adjust the movement to respect arena boundaries
+            movement_direction[:2], target_altitude = adjust_for_boundaries(ARENA_BOUNDARIES, current_3d_position, movement_3d)
 
-    # new yaw
-    if (elapsed_time>=initial_pause and elapsed_time%modi_y<=(modi_pr) and elapsed_time%modi_d>(modi_pr)): # after start-off and in modi_d (s) interval but not during translation
-       yaw = np.random.uniform(-np.pi,np.pi) # turn around by this value
-       print(f'time={elapsed_time:.4}, new yaw={yaw}')
-    '''
-    position, velocity, altitude = control.update(direction, yaw, height) # pass new desired state to control and update
-    prev_direction = velocity 
-    network.update_network(velocity, get_next_state=False) # update grid network with velocity
-    position_log.append(position)
-    network_state.append(network.network_activity.copy())
-# ---------------- end loop ---------------
-print(f'Simulation finished at time={elapsed_time/60:.0}minutes\nData:')
-print(f' - Position log (shape, [min x, min y], [max x, max y]):{np.shape(position_log)}, {np.min(position_log, axis=0)}, {np.max(position_log, axis=0)}')
-print(f' - Network (shape, min, max):{np.shape(network_state)}, {np.min(network_state)}, {np.max(network_state)}')
+            previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
+        
+        # Update the drone's state with the new movement command
+        current_position, velocity, altitude = controller.update(movement_direction, yaw, target_altitude)       
+        grid_network.update_network(velocity, get_next_state=False)
+        
+        position_log.append(current_position)
+        network_states.append(grid_network.network_activity.copy())
+    
+    # ---------------- End of Simulation ----------------
+    print(f'Simulation finished at {elapsed_time/60:.0f} minutes')
+    print(f' - Position log: shape {np.shape(position_log)}, min {np.min(position_log, axis=0)}, max {np.max(position_log, axis=0)}')
+    print(f' - Network state: shape {np.shape(network_states)}, min {np.min(network_states)}, max {np.max(network_states)}')
+    
+    # Compute the effective arena size (maximum radial distance reached)
+    arena_size = np.sqrt(np.max(np.sum(np.array(position_log)**2, axis=1)))
+    print(f' - effective Arena size: {arena_size}')
+    
+    # Visualize the network activity and prediction of the drone's path
+    print('Generating Images...')
+    grid_network.plot_frame_figure(positions_fig=position_log, network_activity=network_states, num_bins=60, arena_size=arena_size)
+    print('Saved activity plot\nCalculating prediction...')
+    
+    # Predict the position using a linear model and plot the results
+    X, y, y_pred, mse_mean, r2_mean = grid_network.fit_linear_model(network_states, position_log)
+    grid_network.plot_prediction_path(y, y_pred, mse_mean, r2_mean)
+    print('Saved prediction plot')
 
-arena_size = np.sqrt(np.max(np.sum(np.array(position_log)**2, axis=1))) # size = sqrt( sum ( max_over_time(x**2+y**2) ) )
-#arena_size = np.sqrt(np.sum((np.max(position, axis=0) - np.min(position, axis=0))**2))
-print(f' - Arena size (min, max, value) = {np.min(position, axis=0)}, {np.max(position, axis=0)}, {arena_size}')
-
-# Plot the network activity
-print('Generating Images')
-network.plot_frame_figure(positions_fig=position_log, network_activity=network_state, num_bins=60, arena_size=arena_size)
-print(' - Saved activity plot\ncalculating prediction')
-
-# Predict position
-X, y, y_pred, mse_mean, r2_mean = network.fit_linear_model(network_state, position_log)
-network.plot_prediction_path(y, y_pred, mse_mean, r2_mean)
-print(' - Saved prediction plot')
+if __name__ == '__main__':
+    main()

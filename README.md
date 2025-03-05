@@ -4,26 +4,25 @@ This projects aims to implements self localisation in the crazyflie drone as sim
 ## Files:
  - SelfLocalisationCF.py
 	- This is the main script and controlflow of the program.
-- CFController.py
-	- [DEPRECATED: Use DroneController instead] Implements a controller unit that is used to control the drone in webbots. Makes use of pid_controller. Sourced and modified sample controller code.
-- pid_controller.py
-	- [DEPRECATED: consolidated with CFController] Implementation of a fixed height pid controller for the crazyflie. Sourced from sample controller under MIT license.
 - GridNetwork.py
 	- This code implements the grid cell model of the guanella paper (doi:10.1142/S0129065707001093). Thanks to Raimon Bullich Villareal for providing the bulk of the code.
+- DroneController.py
+	- Implements a controller unit that is used to control the drone in webbots. Makes use of a pid controller. Sourced and modified sample controller code.
 - Sample
 	- Within this folder are the sample scripts of webots for the wall_following drone controller._ 
+- Results
+	- In this folder are the most recent plots of the results
+- Deprecated
+	- This folder features old version of scripts which are not used anymore.
 - SquareBox.wbt
 	- this is the world file used by webots to construct the environment.
 - runSLC.bat
 	- A batch file that can be run in the cmd to start the controller in webots
-- Results
-	- In this folder are the most recent plots of the results
-- DroneController.py
-	- Implements a controller unit that is used to control the drone in webbots. Makes use of a pid controller. Sourced and modified sample controller code.
 
 ## Latest Change:
+05.03.: Reworked the main script SelfLocalisationCF.py and added documentation. Tweaked the random movement algorithm to use small angle adjustment each step.
 04.03.: Introduced a new way to achieve random movement. It is based on brownian motion and utilises the Ornstein-Uhlenbeck process.<br>
-04.03.: Fixed an issue when passing movement comments to the controller. The controller works with body-centred coordinates(forward, sideways), but the main control calculated new directions in abolute position(x, y).<br>
+04.03.: Fixed an issue when passing movement comments to the controller. The controller works with body-centred coordinates(forward, sideways), but the main control calculated new directions in abolute position(x, y). The controller now correctly transforms the input into body centred coordinates<br>
 28.02.: Introduced a new function that adds a drift towards the origin to new generated translational movement. It has radial dependancy.<br>
 28.02.: Worked on the plotting functions to discern error sources, generelised the code<br>
 28.02.: Implemented a new algorithm to generate random walking. ALso added boundary detection and redirection, but this is still not working optimal everytime<br>
@@ -38,3 +37,4 @@ This projects aims to implements self localisation in the crazyflie drone as sim
 1. The plot generated to show the network activity is rather empty. Check for error sources in the network function.
 2. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code
 3. Add altitude control to the random walk and GridNetwork.
+4. Test the feasibility and processing time of path prediction during simulation.
