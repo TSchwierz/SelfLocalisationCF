@@ -161,7 +161,7 @@ def main():
         
         # Update the drone's state with the new movement command
         current_position, velocity, altitude = controller.update(movement_direction, yaw, target_altitude)       
-        grid_network.update_network(velocity, get_next_state=False)
+        grid_network.update_network(velocity*dt, get_next_state=False)
         
         position_log.append(current_position)
         network_states.append(grid_network.network_activity.copy())

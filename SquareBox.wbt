@@ -1,0 +1,95 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/floors/protos/Floor.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/Parquetry.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/robots/bitcraze/crazyflie/protos/Crazyflie.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/RedBricks.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/MarbleTiles.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/RoughOak.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/Plaster.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation -0.5243103986777621 0.5190937584337252 0.6750113153077621 1.963339541823968
+  position 0.05463063628070535 -6.657830786136831 26.193182618840957
+  follow "Crazyflie"
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+Floor {
+  size 14 14
+  appearance Parquetry {
+  }
+}
+Crazyflie {
+  controller "<extern>"
+  extensionSlot [
+    Camera {
+      name "camera(1)"
+    }
+  ]
+}
+DEF Wall Solid {
+  translation 0 0 2
+  children [
+    DEF Walls Group {
+      children [
+        Pose {
+          translation -5 0 0
+          children [
+            Shape {
+              appearance RedBricks {
+              }
+              geometry Box {
+                size 0.1 14 4
+              }
+            }
+          ]
+        }
+        Pose {
+          translation 0 -5 0
+          children [
+            Shape {
+              appearance Plaster {
+              }
+              geometry Box {
+                size 14 0.1 4
+              }
+            }
+          ]
+        }
+        Pose {
+          translation 0 5 0
+          children [
+            Shape {
+              appearance MarbleTiles {
+              }
+              geometry Box {
+                size 14 0.1 4
+              }
+            }
+          ]
+        }
+        Pose {
+          translation 5 0 0
+          children [
+            Shape {
+              appearance RoughOak {
+              }
+              geometry Box {
+                size 0.1 14 4
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+  name "AllWall"
+  boundingObject USE Walls
+}

@@ -118,7 +118,7 @@ class GridNetwork:
             #          ^+= possible problem is the plus-assign
             
             # Normalize activity
-            net_activity = ((1 - self.tau) * b_activity + self.tau * (b_activity / np.sum(self.network_activity)))
+            net_activity = ((1 - self.tau) * b_activity + self.tau * (b_activity / np.sum(self.network_activity[a, :])))
             # problem is at end. should use all network activity. was using only current sheet  ->             ^[a, :]
             #net_activity = b_activity  <- WHY WAS THIS HERE? JUST OVERRIDES PREVIOUS LINE
             net_activity[net_activity < 0] = 0 
@@ -164,10 +164,8 @@ class GridNetwork:
         arena_size = kwargs.get('arena_size', 1)
         network_activity = kwargs.get('network_activity', self.network_activity)
 
-        min_x = -arena_size
-        max_x = arena_size
-        min_y = -arena_size
-        max_y = arena_size
+        x_min, y_min = np.min(positions_array, axis=0)
+        x_max, y_max = np.max(positions_array, axis=0)
 
         fig = plt.figure(figsize=(13, 8))
         gs = fig.add_gridspec(2, 6, height_ratios=[1, 2.5], width_ratios=[1, 1, 1, 1, 1, 0.07]) # if I want to add colorbar
@@ -182,8 +180,8 @@ class GridNetwork:
             # heatmap, _, _ = np.histogram2d(np.array(positions_fig)[:,0], np.array(positions_fig)[:,1], weights=np.array(network_activity)[:,a,28].flatten(), range=[[0,1], [0,1]], bins=60)
 
             # Initialize an empty heatmap
-            x_bins = np.linspace(min_x, max_x,num_bins)
-            y_bins = np.linspace(min_y, max_y,num_bins)
+            x_bins = np.linspace(x_min, x_max,num_bins)
+            y_bins = np.linspace(y_min, y_max,num_bins)
             heatmap = np.zeros((num_bins, num_bins))
 
             # Iterate over positions and network_activity (Over time)
@@ -193,12 +191,12 @@ class GridNetwork:
                 #x_index = min(num_bins - 1, max(0, np.digitize(position[0], x_bins) - 1))
                 #y_index = min(num_bins - 1, max(0, np.digitize(position[1], y_bins) - 1))
                 #print(f'indexes= {x_index}+{y_index}, shape(heatmap)={np.shape(heatmap)}, shape(network[a, 1])={np.shape(activity[a, 1])}, {heatmap[x_index, y_index]}')
-                heatmap[x_index, y_index] = max(heatmap[x_index, y_index], np.mean(activity[a]))
+                heatmap[x_index, y_index] = max(heatmap[x_index, y_index], np.mean(activity[a, 42]))
                 #heatmap[x_index, y_index] = max(heatmap[x_index, y_index], activity[a, 28]) # get max activity at each position of the heatmap (update fr rate)
                 #                                          why the magic number 28? ^^^^^^^^  Activity is of shape (ngains, neurons) here
 
             #im = heatmap_ax.imshow(heatmap.T, extent=[0, arena_size, 0, arena_size], origin='lower', vmax=1, vmin=0)
-            im = heatmap_ax.imshow(heatmap.T, origin='lower', extent=[min_x, max_x, min_y, max_y], vmax=1, vmin=0)
+            im = heatmap_ax.imshow(heatmap.T, origin='lower', extent=[x_min, x_max, y_min, y_max], vmax=1, vmin=0)
             heatmap_ax.set(title=f'Gain = {round(alpha, 2)}', xticks=[], yticks=[])
             # add labels left plot
             if a == 0:
