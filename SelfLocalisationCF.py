@@ -14,6 +14,8 @@ import numpy as np
 from controller import Robot
 from DroneController import DroneController
 from GridNetwork import GridNetwork
+from datetime import datetime
+import pickle
 
 # ---------------- Simulation Parameters ----------------
 FLYING_ATTITUDE = 1              # Base altitude (z-value) for flying
@@ -22,11 +24,36 @@ COMMAND_INTERVAL = 1             # Interval (in seconds) between new movement co
 COMMAND_TOLERANCE = 0.032        # Tolerance (in seconds) for command timing
 MOVEMENT_MAGNITUDE = 1.0         # Magnitude of the movement vector in the xy-plane
 DRIFT_COEFFICIENT = 0.03         # Lowered drift coefficient to reduce abrupt corrections
-ARENA_BOUNDARIES = np.array([[-4.8, 4.8],  # x boundaries
-                             [-4.8, 4.8],  # y boundaries
+ARENA_BOUNDARIES = np.array([[-2.8, 2.8],  # x boundaries
+                             [-2.8, 2.8],  # y boundaries
                              [0, 4]])      # z boundaries
 
 # ---------------- Helper Functions ----------------
+def save_object(obj, fname='data.pickle'):
+    '''
+    saves a python object to a file using the built-in pickle library
+    
+    :param obj: The object to be saved
+    :param fname: Name of the file in which to save the obj. Default is data.pickle
+    '''
+    try:
+        with open(fname, "wb") as f:
+            pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception as ex:
+        print("Error during pickling object (Possibly unsupported):", ex)
+
+def load_object(filename):
+    '''
+    load an object from a file using the built-in pickle library
+
+    :param filename: Name of the file from which to load data
+    '''
+    try:
+        with open(filename, "rb") as f:
+            return pickle.load(f)
+    except Exception as ex:
+        print("Error during unpickling object (Possibly unsupported):", ex)
+
 def compute_drift_vector(position, drift_coefficient=DRIFT_COEFFICIENT, arena_radius=5):
     """
     Compute a drift vector that nudges the drone toward the arena center.
@@ -113,6 +140,8 @@ def main():
     dt = timestep_ms / 1000.0  # Convert timestep to seconds
     controller = DroneController(robot, FLYING_ATTITUDE)
     grid_network = GridNetwork(12, 12)
+    grid_network.set_gains([0.2, 0.5, 1, 1.7, 2.4])
+    #grid_network = load_object('data.pickle')
     
     # Initialize state variables
     previous_direction = np.array([0, 0])  # Initial xy movement direction
@@ -124,7 +153,7 @@ def main():
     position_log = []
     current_position = np.array([0, 0])
     
-    MAX_SIMULATION_TIME = 3600 * 0.1 # 1h in seconds * amount of hours
+    MAX_SIMULATION_TIME = 3600 * 1 # 1h in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
     print('Starting Simulation')
     # Main loop: run until simulation termination signal or time limit reached
@@ -132,7 +161,7 @@ def main():
         elapsed_time += dt  # Update elapsed time in seconds
         
         if (elapsed_time%UPDATE_INTERVAL<= dt):
-            print(f'elapsed time {elapsed_time/60:.0} of {MAX_SIMULATION_TIME/60} minutes {100*elapsed_time/MAX_SIMULATION_TIME}%')
+            print(f'{datetime.now().time()} - simulated time: {int(elapsed_time/60)} of {MAX_SIMULATION_TIME/60} minutes {elapsed_time/MAX_SIMULATION_TIME:.1%}')
 
         # Default movement: no change unless a new command is issued at the interval
         movement_direction = np.array([0, 0])
@@ -184,6 +213,8 @@ def main():
     X, y, y_pred, mse_mean, r2_mean = grid_network.fit_linear_model(network_states, position_log)
     grid_network.plot_prediction_path(y, y_pred, mse_mean, r2_mean)
     print('Saved prediction plot')
+
+    save_object(grid_network)
 
 if __name__ == '__main__':
     main()

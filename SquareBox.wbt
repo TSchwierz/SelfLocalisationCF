@@ -14,7 +14,7 @@ WorldInfo {
 }
 Viewpoint {
   orientation -0.5243103986777621 0.5190937584337252 0.6750113153077621 1.963339541823968
-  position 0.05463063628070535 -6.657830786136831 26.193182618840957
+  position 0.025420524604458903 -3.7409721839207792 14.769131088234296
   follow "Crazyflie"
 }
 TexturedBackground {
@@ -40,7 +40,7 @@ DEF Wall Solid {
     DEF Walls Group {
       children [
         Pose {
-          translation -5 0 0
+          translation -3 0 0
           children [
             Shape {
               appearance RedBricks {
@@ -52,7 +52,7 @@ DEF Wall Solid {
           ]
         }
         Pose {
-          translation 0 -5 0
+          translation 0 -3 0
           children [
             Shape {
               appearance Plaster {
@@ -64,7 +64,7 @@ DEF Wall Solid {
           ]
         }
         Pose {
-          translation 0 5 0
+          translation 0 3 0
           children [
             Shape {
               appearance MarbleTiles {
@@ -76,7 +76,7 @@ DEF Wall Solid {
           ]
         }
         Pose {
-          translation 5 0 0
+          translation 3 0 0
           children [
             Shape {
               appearance RoughOak {

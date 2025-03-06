@@ -108,23 +108,17 @@ class GridNetwork:
         for a, alpha in enumerate(self.gains):  # Iterate over alpha values
             # Update weight matrix based on current velocity and alpha
             W = self.I * np.exp(- (np.linalg.norm(self.distance_matrix + alpha * np.dot(self.R, velocity_vec), axis=2)**2) / self.sigma**2) - self.T
-            # W = self.I * np.exp(- (np.linalg.norm(self.distance_matrix + alpha * velocity_vec, axis=2)**2) / self.sigma**2) - self.T # for 1d (not sure this would work now)
             self.W = W
+
             # Calculate activity using transfer function
             b_activity = self.network_activity[a, :]
-            #print(f'w max={np.max(W)}')
-            #print(f'np.min/max(b_a)={np.min(b_activity)}/{np.max(b_activity)}')
-            b_activity = b_activity @ W # <- OVERFLOW HERE IN MATMUL
-            #          ^+= possible problem is the plus-assign
+            b_activity = b_activity @ W
             
             # Normalize activity
             net_activity = ((1 - self.tau) * b_activity + self.tau * (b_activity / np.sum(self.network_activity[a, :])))
-            # problem is at end. should use all network activity. was using only current sheet  ->             ^[a, :]
-            #net_activity = b_activity  <- WHY WAS THIS HERE? JUST OVERRIDES PREVIOUS LINE
             net_activity[net_activity < 0] = 0 
             if (np.max(net_activity) != np.min(net_activity)): # normalise only if not all values identical
-                net_activity = (net_activity - np.min(net_activity)) / (np.max(net_activity) - np.min(net_activity)) # <- INVALID VALUE IN DIVIDE
-            #print(f'net activity min/max = {np.min(net_activity)}/{np.max(net_activity)}')
+                net_activity = (net_activity - np.min(net_activity)) / (np.max(net_activity) - np.min(net_activity))
           
             if np.isnan(net_activity).any():
                 print(f'velocity:{velocity_vec}')
@@ -147,7 +141,6 @@ class GridNetwork:
            
     def reset_activity(self):
         ''' To reset the activity population in case there are jumps in xpace (the agent is randomly placed in a new location)'''
-        # np.random.seed(self.seed)
         rng = np.random.default_rng(seed=self.seed)
         self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
 
@@ -168,16 +161,13 @@ class GridNetwork:
         x_max, y_max = np.max(positions_array, axis=0)
 
         fig = plt.figure(figsize=(13, 8))
-        gs = fig.add_gridspec(2, 6, height_ratios=[1, 2.5], width_ratios=[1, 1, 1, 1, 1, 0.07]) # if I want to add colorbar
-        # gs = fig.add_gridspec(2, 5, height_ratios=[1, 2.5], width_ratios=[1, 1, 1, 1, 1]) 
-                                                            # 2 rows, 5 columns. using gridspec to ease locating plots in grids of the figure
-                                                            # height_ratios are the diff in size from top row plots vs bottom ones
+        gs = fig.add_gridspec(2, 6, height_ratios=[1, 2.5], width_ratios=[1, 1, 1, 1, 1, 0.07]) 
+
         # Adding subplots to the gridspec
         for a, alpha in enumerate(self.gains):
 
             heatmap_ax = fig.add_subplot(gs[0, a])
             heatmap_ax.set_aspect('equal')
-            # heatmap, _, _ = np.histogram2d(np.array(positions_fig)[:,0], np.array(positions_fig)[:,1], weights=np.array(network_activity)[:,a,28].flatten(), range=[[0,1], [0,1]], bins=60)
 
             # Initialize an empty heatmap
             x_bins = np.linspace(x_min, x_max,num_bins)
@@ -188,14 +178,9 @@ class GridNetwork:
             for position, activity in zip(positions_array, network_activity):
                 x_index = np.digitize(position[0], x_bins) - 1
                 y_index = np.digitize(position[1], y_bins) - 1
-                #x_index = min(num_bins - 1, max(0, np.digitize(position[0], x_bins) - 1))
-                #y_index = min(num_bins - 1, max(0, np.digitize(position[1], y_bins) - 1))
-                #print(f'indexes= {x_index}+{y_index}, shape(heatmap)={np.shape(heatmap)}, shape(network[a, 1])={np.shape(activity[a, 1])}, {heatmap[x_index, y_index]}')
                 heatmap[x_index, y_index] = max(heatmap[x_index, y_index], np.mean(activity[a, 42]))
-                #heatmap[x_index, y_index] = max(heatmap[x_index, y_index], activity[a, 28]) # get max activity at each position of the heatmap (update fr rate)
-                #                                          why the magic number 28? ^^^^^^^^  Activity is of shape (ngains, neurons) here
+                #                                 Activity is of shape (ngains, neurons) here  ^^ pick any neuron
 
-            #im = heatmap_ax.imshow(heatmap.T, extent=[0, arena_size, 0, arena_size], origin='lower', vmax=1, vmin=0)
             im = heatmap_ax.imshow(heatmap.T, origin='lower', extent=[x_min, x_max, y_min, y_max], vmax=1, vmin=0)
             heatmap_ax.set(title=f'Gain = {round(alpha, 2)}', xticks=[], yticks=[])
             # add labels left plot
@@ -213,18 +198,12 @@ class GridNetwork:
         positions_array = np.array(positions_array) # enable numpy slicing      
         trajectory_ax = fig.add_subplot(gs[1, 1:4])  # Adding subplot for the bottom row # Spanning 3 columns in the middle
         trajectory_ax.plot(positions_array[:, 0], positions_array[:, 1], alpha=0.7, color='purple')
-        trajectory_ax.set_title('Arena', fontsize=20)
+        trajectory_ax.set_title('Effective Arena with travelled path', fontsize=20)
         trajectory_ax.set_aspect('equal')
 
 
         fig.tight_layout(h_pad=3.0) # Adjust layout # change spacing between plots
         plt.savefig('Results\\result_activity_figure.png', format='png') # save in relative folder Results in Source/Repos/SelfLocalisationCF
-        
-        #print(f'positions_fig shape: {np.shape(positions_fig)} , type {type(positions_fig)}')
-        #print("network_activity shape:", np.shape(network_activity))
-        #print("x_bins:", x_bins)
-        #print("y_bins:", y_bins)
-        #print("Heatmap max value:", np.max(heatmap))
 
 
     # Function to fit a linear model from grid network activity with cross-validation
@@ -258,16 +237,13 @@ class GridNetwork:
         r2_std = round(np.std(r2_scores), 5)
 
         if return_shuffled == False:
-            # return mse_mean, mse_std, r2_mean, r2_std
             return X, y, y_pred, mse_mean, r2_mean
 
         else:  # Fit linear model with shuffled labels
             y_shuffled = y.copy()
             np.random.shuffle(y_shuffled)  # Shuffle the labels
-            # Cross-validation scores for MSE with shuffled labels
-            mse_shuffled_scores = -cross_val_score(model, X, y_shuffled, cv=kf, scoring='neg_mean_squared_error')
-            # Cross-validation scores for R2 with shuffled labels
-            r2_shuffled_scores = cross_val_score(model, X, y_shuffled, cv=kf, scoring='r2')
+            mse_shuffled_scores = -cross_val_score(model, X, y_shuffled, cv=kf, scoring='neg_mean_squared_error') # Cross-validation scores for MSE with shuffled labels         
+            r2_shuffled_scores = cross_val_score(model, X, y_shuffled, cv=kf, scoring='r2') # Cross-validation scores for R2 with shuffled labels
 
             # Compute the average and standard deviation of MSE and R2 scores for shuffled data
             mse_shuffled_mean = round(np.mean(mse_shuffled_scores), 5)
@@ -279,7 +255,7 @@ class GridNetwork:
 
     def plot_prediction_path(self, y, y_pred, mse_mean, r2_mean):
         # Plot actual vs predicted trajectories (first 1000 timesteps)
-        size = int(len(y)/2)
+        size = int(len(y)/20)
         plt.figure(figsize=(8, 6))
         plt.plot(y[-size:, 0], y[-size:, 1], 'bo-', label="Actual Path", alpha=0.6) 
         plt.plot(y_pred[-size:, 0], y_pred[-size:, 1], 'ro-', label="Predicted Path", alpha=0.6)

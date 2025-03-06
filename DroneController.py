@@ -186,7 +186,7 @@ class PIDVelocityController:
         self.altitude_integrator += alt_error * dt
         alt_command = (gains["kp_z"] * alt_error +
                        gains["kd_z"] * alt_deriv +
-                       gains["ki_z"] * np.clip(self.altitude_integrator, -2, 2) + 48)
+                       gains["ki_z"] * np.clip(self.altitude_integrator, -2, 2) + 48) # 48 is the bare minimum velocity for lift off 
         self.prev_alt_error = alt_error
         
         # Attitude PID for pitch, roll, and yaw rate
