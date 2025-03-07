@@ -139,8 +139,8 @@ def main():
     timestep_ms = int(robot.getBasicTimeStep())
     dt = timestep_ms / 1000.0  # Convert timestep to seconds
     controller = DroneController(robot, FLYING_ATTITUDE)
-    grid_network = GridNetwork(12, 12)
-    grid_network.set_gains([0.2, 0.5, 1, 1.7, 2.4])
+    grid_network = GridNetwork(12, 12) # make a network with Nx=12 x Ny=12 neurons 
+    grid_network.set_gains([0.3, 0.5, 0.8, 1.2, 1.8, 2.1])
     #grid_network = load_object('data.pickle')
     
     # Initialize state variables
@@ -153,7 +153,7 @@ def main():
     position_log = []
     current_position = np.array([0, 0])
     
-    MAX_SIMULATION_TIME = 3600 * 1 # 1h in seconds * amount of hours
+    MAX_SIMULATION_TIME = 3600 * 5 # 1h in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
     print('Starting Simulation')
     # Main loop: run until simulation termination signal or time limit reached
@@ -190,7 +190,7 @@ def main():
         
         # Update the drone's state with the new movement command
         current_position, velocity, altitude = controller.update(movement_direction, yaw, target_altitude)       
-        grid_network.update_network(velocity*dt, get_next_state=False)
+        grid_network.update_network(velocity*dt)
         
         position_log.append(current_position)
         network_states.append(grid_network.network_activity.copy())
@@ -206,7 +206,8 @@ def main():
     
     # Visualize the network activity and prediction of the drone's path
     print('Generating Images...')
-    grid_network.plot_frame_figure(positions_array=position_log, network_activity=network_states, num_bins=60, arena_size=arena_size)
+    grid_network.plot_frame_figure(positions_array=position_log, network_activity=network_states, num_bins=60)
+    grid_network.plot_activity_neurons(np.array(position_log), num_bins=60, neuron_range=range(grid_network.N), network_activity=np.array(network_states))
     print('Saved activity plot\nCalculating prediction...')
     
     # Predict the position using a linear model and plot the results

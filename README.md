@@ -1,7 +1,7 @@
 # SelfLocalisationCF
 This project aims to implement self localisation using a grid cell model as presented by guanella et al (doi:10.1142/S0129065707001093) in the crazyflie drone as simulated in the webots environment (Details:https://www.bitcraze.io/documentation/tutorials/getting-started-with-simulation/)
 
-## Files:
+## Files and Folders:
  - SelfLocalisationCF.py
 	- This is the main script and control flow of the program.
 - GridNetwork.py
@@ -20,6 +20,7 @@ This project aims to implement self localisation using a grid cell model as pres
 	- A batch file that can be run in the cmd to start the controller in webots
 
 ## Latest Change:
+**07.03.:** Added documentation for the GridNetwork file. Introduced a new function to generate and save the activity plot for each grid cell neuron.<br>
 **06.03.:** Wrote a tutorial for setting up the project. Introduced helper functions for saving and loading data. Tested out different configurations of gain parameters to achieve high predictions.<br>
 **05.03.:** Reworked the main script SelfLocalisationCF.py and added documentation. Tweaked the random movement algorithm to use small angle adjustment each step.<br>
 **04.03.:** Introduced a new way to achieve random movement. It is based on Brownian motion and utilises the Ornstein-Uhlenbeck process.<br>
@@ -39,5 +40,4 @@ This project aims to implement self localisation using a grid cell model as pres
 2. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code
 3. Add altitude control to the random walk and GridNetwork.
 4. Test the feasibility and processing time of path prediction during simulation.
-5. It would be interesting to see the activity of multiple neurons. Write a function to produce activity plots for each neuron
 1. fix the prediction plot by using proper dimensions. Plot the prediction error over time if possible to investigate time-dependency.

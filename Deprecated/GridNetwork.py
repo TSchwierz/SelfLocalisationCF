@@ -62,7 +62,7 @@ class GridNetwork:
         ''' Initialize the distance matrix between all neurons. 
 
         returns:
-            np.array: distance_matrix [N, N, 2]
+            ndarray: distance_matrix [N, N, 2]
         '''
         
         N =  self.N
@@ -118,18 +118,17 @@ class GridNetwork:
         
       #  return W
    
-    def update_network(self, velocity):
+    def update_network(self, velocity_vec, get_next_state=False):
         '''
         Simulate grid-cell activity in real time 
-
-        :param velocity: np.array consisting of 2d velocity
-        Returns:
-            np.array: (ngains, nneurons) reflecting the updated activity of the network
         '''
+        
+        if get_next_state: # init variable if get)next_state is True
+            next_state_activity = np.zeros((len(self.gains), self.N))# this is for the RL part
 
         for a, alpha in enumerate(self.gains):  # Iterate over alpha values
             # Update weight matrix based on current velocity and alpha
-            W = self.I * np.exp(- (np.linalg.norm(self.distance_matrix + alpha * np.dot(self.R, velocity), axis=2)**2) / self.sigma**2) - self.T
+            W = self.I * np.exp(- (np.linalg.norm(self.distance_matrix + alpha * np.dot(self.R, velocity_vec), axis=2)**2) / self.sigma**2) - self.T
             self.W = W
 
             # Calculate activity using transfer function
@@ -140,27 +139,45 @@ class GridNetwork:
             net_activity = ((1 - self.tau) * b_activity + self.tau * (b_activity / np.sum(self.network_activity[a, :])))
             net_activity[net_activity < 0] = 0 
             if (np.max(net_activity) != np.min(net_activity)): # normalise only if not all values identical
-                net_activity = (net_activity - np.min(net_activity)) / (np.max(net_activity) - np.min(net_activity))        
+                net_activity = (net_activity - np.min(net_activity)) / (np.max(net_activity) - np.min(net_activity))
+          
+            if np.isnan(net_activity).any():
+                print(f'velocity:{velocity_vec}')
+                print(f'b_activity min/max/value:{np.min(b_activity)}/{np.max(b_activity)}/{b_activity}')
+                print(f'network activity:{net_activity}')
+                print(f'w/max/min={W}/{np.min(W)}/{np.max(W)}')
+                print(f"Row sum for gain {alpha}: {np.sum(W, axis=1)}")
+                print(f'np.max(net_a)={np.max(net_activity)}')
+                raise ValueError('check this out, activity is exploading')
             
-            self.network_activity[a, :] = net_activity # save activity for each gain
+            # save activity for each gain
+            if not get_next_state: # this is when network is run normally
+                self.network_activity[a, :] = net_activity
+            else: # this is when only evaluating next state ('kick') for RL. 
+                next_state_activity[a,:] = net_activity  
 
-        return self.network_activity
+        if get_next_state:
+            # print('test with net activity:', np.mean(next_state_activity-self.network_activity) )
+            return next_state_activity
            
-    #def reset_activity(self):
-    #    ''' To reset the activity population in case there are jumps in xpace (the agent is randomly placed in a new location)'''
-    #    rng = np.random.default_rng(seed=self.seed)
-    #    self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
+    def reset_activity(self):
+        ''' To reset the activity population in case there are jumps in xpace (the agent is randomly placed in a new location)'''
+        rng = np.random.default_rng(seed=self.seed)
+        self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
 
-    def plot_frame_figure(self, positions_array, num_bins, network_activity, neuron=42):
+    def plot_frame_figure(self, positions_array, num_bins, **kwargs):
         """
-        Plots a heatmap of network activity at different gain levels and overlays the trajectory. 
-        The plot is saved in the results folder within the relative directory.
+        Plots a heatmap of network activity at different gain levels and overlays the trajectory.
 
-        :param positions_array: list of shape (ntime, ndim) 
-        :param num_bins: int 
-        :param network_activity: list of shape (ntime, ngain, nneuron)
-        :param neuron: int. Default=42
+        Parameters:
+        - positions_fig (array-like): List of (x, y) positions over time.
+        - num_bins (int): Number of bins for the heatmap.
+        - **kwargs: Optional parameters 'network_activity' and 'neuron'.
+
         """
+        network_activity = kwargs.get('network_activity', self.network_activity)
+        neuron = kwargs.get('neuron', 42)
+
         x_min, y_min = np.min(positions_array, axis=0)
         x_max, y_max = np.max(positions_array, axis=0)
 
@@ -208,18 +225,17 @@ class GridNetwork:
 
         fig.tight_layout(h_pad=3.0) # Adjust layout # change spacing between plots
         plt.savefig('Results\\result_activity_figure.png', format='png') # save in relative folder Results in Source/Repos/SelfLocalisationCF
-        plt.close()
 
-    def plot_activity_neurons(self, positions_array, num_bins, neuron_range, network_activity):
+    def plot_activity_neurons(self, positions_array, num_bins, neuron_range, **kwargs):
         """
         Plots a heatmap of network activity at different gain levels for each neuron specified in the neuron range.
-        Saves the plot under the results folder in the relative directory
 
         Parameters:
-        - positions_array (list): List of (x, y) positions over time.
+        - positions_array (array-like): List of (x, y) positions over time.
         - num_bins (int): Number of bins for the heatmap.
-        - network_activity (np.array): Activity of the network, shape (ntime, ngain, nneuron).
+        - **kwargs: Optional parameter 'network_activity'.
         """
+        network_activity = kwargs.get('network_activity', self.network_activity)
 
         x_min, y_min = np.min(positions_array, axis=0)
         x_max, y_max = np.max(positions_array, axis=0)
@@ -273,16 +289,7 @@ class GridNetwork:
     # Function to fit a linear model from grid network activity with cross-validation
     def fit_linear_model(self, activity_array, pos, return_shuffled=False, alpha=1.0, cv_folds=10):
         '''
-        Predicts the location of the agent based on the activity level of the network
-
-        :param activity_array: np.array featuring the time history of network activity. shape (ntime, ngain, nneuron)
-        :param pos: list of shape (ntime, ndim), position log of the agent
-        :param return_shuffled: bool, default=False
-        :param alpha: float, parameter used for the regression model
-        :param cv_folds: int, amount of folds to divide the data into
-
-        Returns:
-            tuple: (X (np.array), y (np.array), y_pred (np.array), mse_mean (float), r2_mean (float))
+        This function predicts the location of the object based on the activity level of the network
         '''
         np.random.seed(self.seed)
 
@@ -327,14 +334,7 @@ class GridNetwork:
             return X, y, y_pred, mse_mean, mse_shuffled_mean, r2_mean, r2_shuffled_mean
 
     def plot_prediction_path(self, y, y_pred, mse_mean, r2_mean):
-        '''
-        Plots the predicted path and the actual path and saves the plot under the results folder in the relative directory
-
-        :params y: np.array (ntime, ndim), actual path
-        :params y_pred: np.array (ntime, ndim), predicted path
-        :params mse_mean: float, the mean-square-error of the prediction
-        :params r2_mean: float, the r2-error of the prediction
-        '''
+        # Plot actual vs predicted trajectories (first 1000 timesteps)
         size = int(len(y)/20)
         plt.figure(figsize=(8, 6))
         plt.plot(y[-size:, 0], y[-size:, 1], 'b.-', label="Actual Path", alpha=0.6) 
@@ -344,7 +344,6 @@ class GridNetwork:
         plt.legend()
         plt.title(f'Actual vs Predicted Positions. MSE={mse_mean}, Rˆ2={r2_mean}')
         plt.savefig('Results\\result_prediction.png', format='png')
-        plt.close()
 
 
         
