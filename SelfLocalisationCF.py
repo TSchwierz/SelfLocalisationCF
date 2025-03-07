@@ -10,6 +10,7 @@ The simulation logs the drone's position and grid network activity, then visuali
 predicts the drone's path using a linear model.
 """
 
+import os
 import numpy as np
 from controller import Robot
 from DroneController import DroneController
@@ -133,14 +134,15 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.1):
     return np.array([np.cos(new_angle), np.sin(new_angle)]) * magnitude
 
 # ---------------- Main Simulation Loop ----------------
-def main():
+def main(ID, gains, robot_, simulated_hours=1):
+    os.makedirs(f"Results\\ID{ID}", exist_ok=True)
     # Initialize simulation components
-    robot = Robot()
+    robot = robot_
     timestep_ms = int(robot.getBasicTimeStep())
     dt = timestep_ms / 1000.0  # Convert timestep to seconds
     controller = DroneController(robot, FLYING_ATTITUDE)
     grid_network = GridNetwork(12, 12) # make a network with Nx=12 x Ny=12 neurons 
-    grid_network.set_gains([0.3, 0.5, 0.8, 1.2, 1.8, 2.1])
+    grid_network.set_gains(gains)
     #grid_network = load_object('data.pickle')
     
     # Initialize state variables
@@ -153,9 +155,9 @@ def main():
     position_log = []
     current_position = np.array([0, 0])
     
-    MAX_SIMULATION_TIME = 3600 * 5 # 1h in seconds * amount of hours
+    MAX_SIMULATION_TIME = 3600 * simulated_hours # 1h in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
-    print('Starting Simulation')
+    print(f'Starting Simulation\nID:{ID}, gains:{gains}')
     # Main loop: run until simulation termination signal or time limit reached
     while robot.step(timestep_ms) != -1 and elapsed_time < MAX_SIMULATION_TIME:
         elapsed_time += dt  # Update elapsed time in seconds
@@ -204,18 +206,34 @@ def main():
     arena_size = np.sqrt(np.max(np.sum(np.array(position_log)**2, axis=1)))
     print(f' - effective Arena size: {arena_size}')
     
-    # Visualize the network activity and prediction of the drone's path
+    # Visualize the network activity and complete path coverage
     print('Generating Images...')
-    grid_network.plot_frame_figure(positions_array=position_log, network_activity=network_states, num_bins=60)
-    grid_network.plot_activity_neurons(np.array(position_log), num_bins=60, neuron_range=range(grid_network.N), network_activity=np.array(network_states))
+    grid_network.plot_frame_figure(positions_array=position_log, network_activity=network_states, num_bins=60, ID=ID)
+
+    # Generate activity plots for each neuron
+    #grid_network.plot_activity_neurons(np.array(position_log), num_bins=60, neuron_range=range(grid_network.N), network_activity=np.array(network_states), ID=ID)
     print('Saved activity plot\nCalculating prediction...')
     
     # Predict the position using a linear model and plot the results
     X, y, y_pred, mse_mean, r2_mean = grid_network.fit_linear_model(network_states, position_log)
-    grid_network.plot_prediction_path(y, y_pred, mse_mean, r2_mean)
+    grid_network.plot_prediction_path(y, y_pred, mse_mean, r2_mean, ID=ID)
     print('Saved prediction plot')
 
-    save_object(grid_network)
+    # Save the results of the network
+    save_object(grid_network, f'Results\\ID{ID}\\network{ID}.pickle')
+    with open(f'Results\\SummaryResults.txt', 'a') as file:
+        file.write(f'ID:{ID}, gains:{gains}\nmse_mean:{mse_mean}\nr2_mean:{r2_mean}\n --- \n')
+        file.close()
+    print(f'Saved Network.\nFinished execution of ID{ID}')
+
 
 if __name__ == '__main__':
-    main()
+    robot = Robot()
+    # define a set of gains to be tested for best performance
+    gain_list = [[0.1, 0.3, 0.5, 0.7, 0.9, 1.1],
+             [0.2, 0.7, 1.2, 1.7, 2.2],
+             [0.5, 1, 1.5],
+             [0.3, 0.5, 0.8, 1.2, 1.8, 2.1],
+             [1, 1.4, 1.8, 2.2]]
+    for i, gains in enumerate(gain_list):
+        main(ID=i, gains=gains, robot_=robot, simulated_hours=0.05)

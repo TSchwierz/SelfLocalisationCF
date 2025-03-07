@@ -14,7 +14,7 @@ WorldInfo {
 }
 Viewpoint {
   orientation -0.5243103986777621 0.5190937584337252 0.6750113153077621 1.963339541823968
-  position 0.025420524604458903 -3.7409721839207792 14.769131088234296
+  position 0.01724181584695858 -2.924264009068634 11.570444573951372
   follow "Crazyflie"
 }
 TexturedBackground {
@@ -22,7 +22,7 @@ TexturedBackground {
 TexturedBackgroundLight {
 }
 Floor {
-  size 14 14
+  size 6 6
   appearance Parquetry {
   }
 }
@@ -46,7 +46,7 @@ DEF Wall Solid {
               appearance RedBricks {
               }
               geometry Box {
-                size 0.1 14 4
+                size 0.1 6 4
               }
             }
           ]
@@ -58,7 +58,7 @@ DEF Wall Solid {
               appearance Plaster {
               }
               geometry Box {
-                size 14 0.1 4
+                size 6 0.1 4
               }
             }
           ]
@@ -70,7 +70,7 @@ DEF Wall Solid {
               appearance MarbleTiles {
               }
               geometry Box {
-                size 14 0.1 4
+                size 6 0.1 4
               }
             }
           ]
@@ -82,7 +82,7 @@ DEF Wall Solid {
               appearance RoughOak {
               }
               geometry Box {
-                size 0.1 14 4
+                size 0.1 6 4
               }
             }
           ]

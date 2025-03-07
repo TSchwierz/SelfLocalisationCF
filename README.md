@@ -11,7 +11,7 @@ This project aims to implement self localisation using a grid cell model as pres
 - Sample
 	- Within this folder are the sample scripts of webots for the wall_following drone controller._ 
 - Results
-	- In this folder are the most recent plots of the results
+	- In this folder are the most recent plots and results
 - Deprecated
 	- This folder features old version of scripts which are not used any more.
 - SquareBox.wbt
@@ -20,6 +20,7 @@ This project aims to implement self localisation using a grid cell model as pres
 	- A batch file that can be run in the cmd to start the controller in webots
 
 ## Latest Change:
+**07.03.:** Tweaks on how results are saved. Added the possibility to repeat the simulation multiple times for different sets of gain parameters<br>
 **07.03.:** Added documentation for the GridNetwork file. Introduced a new function to generate and save the activity plot for each grid cell neuron.<br>
 **06.03.:** Wrote a tutorial for setting up the project. Introduced helper functions for saving and loading data. Tested out different configurations of gain parameters to achieve high predictions.<br>
 **05.03.:** Reworked the main script SelfLocalisationCF.py and added documentation. Tweaked the random movement algorithm to use small angle adjustment each step.<br>
@@ -37,7 +38,7 @@ This project aims to implement self localisation using a grid cell model as pres
 
 ## Current Tasks (no particular order):
 1. Tweak the gains of the network model to find a set which displays clear grid cell activities and scores a good prediction.
-2. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code
+2. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
 3. Add altitude control to the random walk and GridNetwork.
 4. Test the feasibility and processing time of path prediction during simulation.
 1. fix the prediction plot by using proper dimensions. Plot the prediction error over time if possible to investigate time-dependency.

@@ -59,48 +59,58 @@ class GridNetwork:
         self.update_network_shape()  # Update network_activity shape when gains are changed
 
     def initialize_distance_matrix(self):
-        ''' Initialize the distance matrix between all neurons. 
-
-        returns:
-            np.array: distance_matrix [N, N, 2]
+        ''' Vectorized version to initialize the distance matrix between all neurons.
+    
+        Returns:
+            np.array: distance_matrix of shape [N, N, 2]
         '''
-        
-        N =  self.N
-        
-        i = np.arange(1, self.N_x+1)
-        j = np.arange(1, self.N_y+1)
+        N = self.N
+    
+        # Create coordinate arrays for the grid
+        i = np.arange(1, self.N_x + 1)
+        j = np.arange(1, self.N_y + 1)
+        x, y = np.meshgrid(i, j)
+        x = x.ravel()
+        y = y.ravel()
+    
+        # Compute normalized cell positions
+        cx = (x - 0.5) / self.N_x
+        cy = (np.sqrt(3) / 2) * (y - 0.5) / self.N_y
+        c = np.stack([cx, cy], axis=1)  # Shape: (N, 2)
+    
+        # Define the possible translations in the twisted toroidal structure
+        s_j = np.array([
+            [0, 0],
+            [-0.5,  np.sqrt(3) / 2],
+            [-0.5, -np.sqrt(3) / 2],
+            [0.5,  np.sqrt(3) / 2],
+            [0.5, -np.sqrt(3) / 2],
+            [-1, 0],
+            [1, 0]
+        ])  # Shape: (7, 2)
+    
+        # Compute all pairwise differences between neuron coordinates.
+        # diff has shape (N, N, 2)
+        diff = c[:, np.newaxis, :] - c[np.newaxis, :, :]
+    
+        # Add the translations to the differences. Broadcasting produces an array of shape (N, N, 7, 2)
+        candidates = diff[:, :, np.newaxis, :] + s_j[np.newaxis, np.newaxis, :, :]
+    
+        # Compute the Euclidean norms for each candidate translation; result has shape (N, N, 7)
+        candidate_norms = np.linalg.norm(candidates, axis=-1)
+    
+        # For each (i, j), find the index of the translation that gives the minimum norm.
+        best_index = np.argmin(candidate_norms, axis=-1)  # Shape: (N, N)
+    
+        # Use advanced indexing to select the optimal translation for each pair, resulting in shape (N, N, 2)
+        best_s = s_j[best_index]
+    
+        # The distance matrix is the sum of the pairwise differences and the optimal translations.
+        distance_matrix = diff + best_s
+    
+        print('Distance matrix initialized')
+        return distance_matrix
 
-        x, y = np.meshgrid(i,j) # create x y coordinates (in 2d grids)
-        x = np.ravel(x) # np.ravel and .flatten() is, in practice, the same 
-        y = np.ravel(y)
-
-        # compute c (position of the cells on the sheet, defined by coordinates c_x and c_y)
-        cx = (x - 0.5)/self.N_x
-        cy = (np.sqrt(3)/2) * (y - 0.5)/self.N_y
-        c = np.array([[cx[i], cy[i]] for i in range(N)]) # list with 2d coordinates (len(c)=N)
-
-        # Initialize ll possible rotations in the twisted toroidal structure
-        s_j = [[0, 0], [-0.5, np.sqrt(3)/2], [-0.5,-np.sqrt(3)/2], [0.5, np.sqrt(3)/2],  [0.5, -np.sqrt(3)/2], [-1, 0], [1, 0]] 
-        
-        distance_matrix = np.zeros((N,N,2))
-
-        # loop through all combinations of neurons
-        for i in range(N):
-            for j in range(N):
-                min_norm = float('inf')  # Initialize with positive infinity to ensure the first norm is smaller
-                for s in s_j: # Iterate over each s_j and compute the norm
-                    # Compute the the min norm of the vector c[i] - c[j] + s
-                    norm = np.linalg.norm(c[i] - c[j] + s)
-                    # Update the minimum norm and its index if the current norm is smaller
-                    if norm < min_norm:
-                        min_norm = norm # update min norm
-                        min_s = s
-                        
-                dist = c[i] - c[j] + min_s
-                distance_matrix[i,j] = dist
-
-        print('Distance matrix initialized') 
-        return distance_matrix    
     
     #def weight_function(self, I, T, sigma):
      #   ''' 
@@ -151,7 +161,7 @@ class GridNetwork:
     #    rng = np.random.default_rng(seed=self.seed)
     #    self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
 
-    def plot_frame_figure(self, positions_array, num_bins, network_activity, neuron=42):
+    def plot_frame_figure(self, positions_array, num_bins, network_activity, neuron=42, ID=0):
         """
         Plots a heatmap of network activity at different gain levels and overlays the trajectory. 
         The plot is saved in the results folder within the relative directory.
@@ -165,7 +175,7 @@ class GridNetwork:
         x_max, y_max = np.max(positions_array, axis=0)
 
         fig = plt.figure(figsize=(13, 8))
-        gs = fig.add_gridspec(2, 6, height_ratios=[1, 2.5], width_ratios=[1, 1, 1, 1, 1, 0.07]) 
+        gs = fig.add_gridspec(2, len(self.gains)+1) 
 
         # Adding subplots to the gridspec
         for a, alpha in enumerate(self.gains):
@@ -207,10 +217,10 @@ class GridNetwork:
 
 
         fig.tight_layout(h_pad=3.0) # Adjust layout # change spacing between plots
-        plt.savefig('Results\\result_activity_figure.png', format='png') # save in relative folder Results in Source/Repos/SelfLocalisationCF
+        plt.savefig(f'Results\\ID{ID}\\result_activity_figure.png', format='png') # save in relative folder Results in Source/Repos/SelfLocalisationCF
         plt.close()
 
-    def plot_activity_neurons(self, positions_array, num_bins, neuron_range, network_activity):
+    def plot_activity_neurons(self, positions_array, num_bins, neuron_range, network_activity, ID=0):
         """
         Plots a heatmap of network activity at different gain levels for each neuron specified in the neuron range.
         Saves the plot under the results folder in the relative directory
@@ -266,11 +276,9 @@ class GridNetwork:
             colorbar.set_ticklabels([f'{0:.2f}', f'{0.5:.2f}', f'{1:.2f}'])
 
             fig.tight_layout(h_pad=3.0)
-            plt.savefig(f'Results/result_activity_neuron{neuron}.png', format='png')
+            plt.savefig(f'Results\\ID{ID}\\result_activity_neuron{neuron}.png', format='png')
             plt.close()
 
-
-    # Function to fit a linear model from grid network activity with cross-validation
     def fit_linear_model(self, activity_array, pos, return_shuffled=False, alpha=1.0, cv_folds=10):
         '''
         Predicts the location of the agent based on the activity level of the network
@@ -297,9 +305,9 @@ class GridNetwork:
         kf = KFold(n_splits=cv_folds, shuffle=True, random_state=self.seed)
 
         # Cross-validation scores for MSE
-        mse_scores = -cross_val_score(model, X, y, cv=kf, scoring='neg_mean_squared_error')
+        mse_scores = -cross_val_score(model, X, y, cv=kf, scoring='neg_mean_squared_error', n_jobs=-1)
         # Cross-validation scores for R2
-        r2_scores = cross_val_score(model, X, y, cv=kf, scoring='r2')
+        r2_scores = cross_val_score(model, X, y, cv=kf, scoring='r2', n_jobs=-1)
         # Crossval estimates
         y_pred = cross_val_predict(model, X, y, cv=kf)
 
@@ -326,7 +334,7 @@ class GridNetwork:
 
             return X, y, y_pred, mse_mean, mse_shuffled_mean, r2_mean, r2_shuffled_mean
 
-    def plot_prediction_path(self, y, y_pred, mse_mean, r2_mean):
+    def plot_prediction_path(self, y, y_pred, mse_mean, r2_mean, ID=0):
         '''
         Plots the predicted path and the actual path and saves the plot under the results folder in the relative directory
 
@@ -336,6 +344,7 @@ class GridNetwork:
         :params r2_mean: float, the r2-error of the prediction
         '''
         size = int(len(y)/20)
+        size = np.clip(size, 10, 10000)
         plt.figure(figsize=(8, 6))
         plt.plot(y[-size:, 0], y[-size:, 1], 'b.-', label="Actual Path", alpha=0.6) 
         plt.plot(y_pred[-size:, 0], y_pred[-size:, 1], 'r.-', label="Predicted Path", alpha=0.6)
@@ -343,7 +352,7 @@ class GridNetwork:
         plt.ylabel("Y Position")
         plt.legend()
         plt.title(f'Actual vs Predicted Positions. MSE={mse_mean}, Rˆ2={r2_mean}')
-        plt.savefig('Results\\result_prediction.png', format='png')
+        plt.savefig(f'Results\\ID{ID}\\result_prediction.png', format='png')
         plt.close()
 
 
