@@ -12,7 +12,9 @@ predicts the drone's path using a linear model.
 
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 from controller import Robot
+from controller import Supervisor
 from DroneController import DroneController
 from GridNetwork import GridNetwork
 from datetime import datetime
@@ -27,9 +29,53 @@ MOVEMENT_MAGNITUDE = 1.0         # Magnitude of the movement vector in the xy-pl
 DRIFT_COEFFICIENT = 0.03         # Lowered drift coefficient to reduce abrupt corrections
 ARENA_BOUNDARIES = np.array([[-2.8, 2.8],  # x boundaries
                              [-2.8, 2.8],  # y boundaries
-                             [0, 4]])      # z boundaries
+                             [0.5, 3.5]])      # z boundaries
 
 # ---------------- Helper Functions ----------------
+def plot_fitting_results(n, spacing, score):
+    '''
+    Plot the scoring of gain configurations as a heatmap based on the number of gains and the spacing between them
+    
+    :param n: list with the amount of gains
+    :param spacing: list with the spacings between gains
+    :param score: a flattened list of size (n, spacing) that contains the score of each configuration 
+    '''
+    heatmap = np.array(score).reshape((len(n), len(spacing)))
+    fig, ax = plt.subplots()
+    im = ax.imshow(heatmap)
+    ax.set_yticks(range(len(n)), labels=n,
+                  rotation=45, ha="right", rotation_mode="anchor")
+    ax.set_xticks(range(len(spacing)), labels=spacing)
+
+    for i in range(len(n)):
+        for j in range(len(spacing)):
+            text = ax.text(j, i, f'ID{i*j+j}\n{heatmap[i, j]}',
+                           ha="center", va="center", color="w")
+
+    ax.set_title("MSE Scoring over number (y) and spacing (x) of gains")
+    fig.colorbar(im)
+    fig.tight_layout()
+    plt.savefig(f'Results\\best_gain_results.png', format='png') # save in relative folder Results in Source/Repos/SelfLocalisationCF
+    plt.close()
+
+def generate_gain_lists(Lsize, Lspacing, start=0.1):
+    '''
+    Generates a list of gains according to the desired sizes and spacings
+
+    :param Lsize: list of ints containing the amount of gains 
+    :param Lspacing: list of floats containing the constant increase between the gains
+
+    Return:
+    - an inhomogenous list of shape (len(Lsize)*len(Lspacing), Lsize) containing lists of gains
+    '''
+    gain_list = []
+
+    for n in Lsize:
+        for s in Lspacing:
+            gains = [round(start + i * s, 1) for i in range(n)]
+            gain_list.append(gains)
+    return gain_list
+
 def save_object(obj, fname='data.pickle'):
     '''
     saves a python object to a file using the built-in pickle library
@@ -98,13 +144,16 @@ def adjust_for_boundaries(boundaries, position, movement_vector):
             adjusted_vector[i] = upper_bounds[i] - position[i]
     return adjusted_vector[:2], adjusted_vector[2]
 
-def get_new_altitude():
+def get_new_altitude(current_altitude, sigma=0.25):
     """
-    Generate a new altitude based on a normal distribution centered around FLYING_ATTITUDE.
+    Generate a new altitude based on a normal distribution centered around current_altitude.
+
+    :param current_altitude: [Float] The current height at which the drone is flying.
+    :param sigma: [Float, DEFAULT=0.25] The standart variance on the new height
     
     :return: A new altitude value.
     """
-    return np.random.normal(FLYING_ATTITUDE, 0.25)
+    return np.random.normal(current_altitude, sigma)
 
 def update_direction(current_direction, magnitude, dt, angular_std=0.1):
     """
@@ -141,7 +190,7 @@ def main(ID, gains, robot_, simulated_hours=1):
     timestep_ms = int(robot.getBasicTimeStep())
     dt = timestep_ms / 1000.0  # Convert timestep to seconds
     controller = DroneController(robot, FLYING_ATTITUDE)
-    grid_network = GridNetwork(12, 12) # make a network with Nx=12 x Ny=12 neurons 
+    grid_network = GridNetwork(9, 10) # make a network with Nx=12 x Ny=12 neurons 
     grid_network.set_gains(gains)
     #grid_network = load_object('data.pickle')
     
@@ -171,12 +220,10 @@ def main(ID, gains, robot_, simulated_hours=1):
         
         # Issue a new movement command at defined intervals (after the initial pause)
         if elapsed_time >= INITIAL_PAUSE and (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
-            target_altitude = altitude  # Here altitude is kept constant; can be randomized if desired
-            
-            # Update xy-direction using a small-angle random walk
-            smooth_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.33)
-            # Add drift toward the arena center
-            drift = compute_drift_vector(np.concatenate((current_position, [altitude])))
+            # Generate random movement commands
+            target_altitude = altitude # keeping it constant for now #get_new_altitude(altitude) 
+            smooth_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.33) # Update xy-direction using a small-angle random walk        
+            drift = compute_drift_vector(np.concatenate((current_position, [altitude]))) # Add drift toward the arena center
             movement_direction = smooth_direction + drift
             
             # Form the complete 3D movement vector
@@ -215,25 +262,46 @@ def main(ID, gains, robot_, simulated_hours=1):
     print('Saved activity plot\nCalculating prediction...')
     
     # Predict the position using a linear model and plot the results
-    X, y, y_pred, mse_mean, r2_mean = grid_network.fit_linear_model(network_states, position_log)
+    X, y, y_pred, mse_mean, mse_shuffeled, r2_mean, r2_shuffeled = grid_network.fit_linear_model(network_states, position_log, return_shuffled=True)
     grid_network.plot_prediction_path(y, y_pred, mse_mean, r2_mean, ID=ID)
     print('Saved prediction plot')
 
     # Save the results of the network
     save_object(grid_network, f'Results\\ID{ID}\\network{ID}.pickle')
     with open(f'Results\\SummaryResults.txt', 'a') as file:
-        file.write(f'ID:{ID}, gains:{gains}\nmse_mean:{mse_mean}\nr2_mean:{r2_mean}\n --- \n')
+        file.write(f'ID:{ID}, gains:{gains}\nmse_mean:{mse_mean}\tmse_shuffeled:{mse_shuffeled}\nr2_mean:{r2_mean}\tr2_shuffeled:{r2_shuffeled}\n --- \n')
         file.close()
-    print(f'Saved Network.\nFinished execution of ID{ID}')
-
+    print(f'Saved Network.')
+    print(f'Finished execution of ID{ID}')
+    return mse_mean
 
 if __name__ == '__main__':
     robot = Robot()
+    supervisor = Supervisor()
+
+    robot_node = supervisor.getFromDef("Crazyflie")
+    trans_field = robot_node.getField("translation")
+    INITIAL = [0, 0, 1]
+
     # define a set of gains to be tested for best performance
-    gain_list = [[0.1, 0.3, 0.5, 0.7, 0.9, 1.1],
-             [0.2, 0.7, 1.2, 1.7, 2.2],
-             [0.5, 1, 1.5],
-             [0.3, 0.5, 0.8, 1.2, 1.8, 2.1],
-             [1, 1.4, 1.8, 2.2]]
+    gain_list = [[0.1, 0.4, 0.7, 1.0],
+                 [0.1, 0.4, 0.7, 1.0, 1.3],
+                 [0.2, 0.7, 1.2, 1.7, 2.2],
+                 [0.1, 0.2, 0.3, 0.4, 0.5],
+                 [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+                 [0.3, 0.5, 0.8, 1.2, 1.8, 2.1],
+                 [0.1, 0.3, 0.5, 0.7, 0.9, 1.1],
+                 [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5]]
+
+    nr = [3, 4, 5, 6]
+    spacing = [0.1, 0.2, 0.3, 0.4]
+    gain_list = generate_gain_lists(nr, spacing, start=0.2)
+
+    mse_means = []
+
     for i, gains in enumerate(gain_list):
-        main(ID=i, gains=gains, robot_=robot, simulated_hours=0.05)
+        trans_field.setSFVec3f(INITIAL)
+        robot_node.resetPhysics()
+        mse_means.append(main(ID=i, gains=gains, robot_=robot, simulated_hours=0.15))
+
+    plot_fitting_results(nr, spacing, mse_means)

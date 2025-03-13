@@ -20,6 +20,7 @@ This project aims to implement self localisation using a grid cell model as pres
 	- A batch file that can be run in the cmd to start the controller in webots
 
 ## Latest Change:
+**13.03.:** Added a method that produces an overview of mse scores for a all gain list that are tested. The progam crashed with a BSOD once so care should be applied when trying to run it now. The best results are generally achieved with a high number of gains (5-6) and low spacing between them (0.1-0.2). Spacing here means the difference between two adjacend gains with the same list (e.g. spacing=0.2, gains = [0.2, 0.4, 0.6, etc]). The spacing seems to have a higher impact and mse scores generally increase with longer simulation times.<br>
 **07.03.:** Tweaks on how results are saved. Added the possibility to repeat the simulation multiple times for different sets of gain parameters<br>
 **07.03.:** Added documentation for the GridNetwork file. Introduced a new function to generate and save the activity plot for each grid cell neuron.<br>
 **06.03.:** Wrote a tutorial for setting up the project. Introduced helper functions for saving and loading data. Tested out different configurations of gain parameters to achieve high predictions.<br>
@@ -37,8 +38,8 @@ This project aims to implement self localisation using a grid cell model as pres
 
 
 ## Current Tasks (no particular order):
-1. Tweak the gains of the network model to find a set which displays clear grid cell activities and scores a good prediction.
-2. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
+1. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
+1. Revert the project to run only a single simulation using the best performing set of gains
 3. Add altitude control to the random walk and GridNetwork.
 4. Test the feasibility and processing time of path prediction during simulation.
-1. fix the prediction plot by using proper dimensions. Plot the prediction error over time if possible to investigate time-dependency.
+1. Plot the prediction error over time if possible to investigate time-dependency.

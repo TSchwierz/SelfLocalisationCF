@@ -75,6 +75,8 @@ class DroneController:
         gps_values = self.gps.getValues()
         pos_global = np.array(gps_values[:2])
         altitude = gps_values[2]
+
+        flipped = (abs(roll) > 90) or (abs(pitch) > 90) # check if drone is flipped upside down
         
         # Compute global velocity based on GPS difference
         global_velocity = (pos_global - self.past_pos) / dt
@@ -104,6 +106,11 @@ class DroneController:
         motor_speeds[0] *= -1
         motor_speeds[2] *= -1
         
+        # Reverse action if Drone is flipped
+        if (flipped):
+            motor_speeds = [-50, 50, 50, -50] # thurst one side up and other down to turn horizontally 
+            print('Drone is flipped, trying to stabilise')
+
         # Set motor speeds
         for motor, speed in zip(self.motors, motor_speeds):
             motor.setVelocity(speed)

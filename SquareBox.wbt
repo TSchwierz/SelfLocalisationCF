@@ -28,6 +28,7 @@ Floor {
 }
 Crazyflie {
   controller "<extern>"
+  supervisor TRUE
   extensionSlot [
     Camera {
       name "camera(1)"

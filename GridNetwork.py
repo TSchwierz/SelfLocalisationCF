@@ -290,7 +290,8 @@ class GridNetwork:
         :param cv_folds: int, amount of folds to divide the data into
 
         Returns:
-            tuple: (X (np.array), y (np.array), y_pred (np.array), mse_mean (float), r2_mean (float))
+            tuple: (X (np.array), y (np.array), y_pred (np.array), mse_mean (float), r2_mean (float)) OR
+            tuple: (X (np.array), y (np.array), y_pred (np.array), mse_mean (float), mse_mean_shuffeled (float), r2_mean (float), r2_mean_shuffeled)
         '''
         np.random.seed(self.seed)
 
@@ -305,7 +306,9 @@ class GridNetwork:
         kf = KFold(n_splits=cv_folds, shuffle=True, random_state=self.seed)
 
         # Cross-validation scores for MSE
-        mse_scores = -cross_val_score(model, X, y, cv=kf, scoring='neg_mean_squared_error', n_jobs=-1)
+        mse_scores = -cross_val_score(model, X, y, cv=kf, scoring='neg_mean_squared_error') #, n_jobs=-1) <- this enables parallel processing
+        #          parallel processing seems to malfunction with cleaning up temporary files, possible leading to memory leakage
+
         # Cross-validation scores for R2
         r2_scores = cross_val_score(model, X, y, cv=kf, scoring='r2', n_jobs=-1)
         # Crossval estimates
