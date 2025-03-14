@@ -26,7 +26,7 @@ Floor {
   appearance Parquetry {
   }
 }
-Crazyflie {
+DEF Crazyflie Crazyflie {
   controller "<extern>"
   supervisor TRUE
   extensionSlot [

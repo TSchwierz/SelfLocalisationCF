@@ -20,6 +20,7 @@ This project aims to implement self localisation using a grid cell model as pres
 	- A batch file that can be run in the cmd to start the controller in webots
 
 ## Latest Change:
+**14.03.:** _WIP_ added a new module implementing a Kalman Filter and RLS algorithm to estimate positions online during simulations. Still needs to be checked and refined. Also computational cost and memory efficiency should be checked. The Repository now has tags to revert it to specific states if needed.<br>
 **13.03.:** Added a method that produces an overview of mse scores for a sequence of gains that are tested. The progam crashed with a BSOD once so care should be applied when trying to run it. The best results are generally achieved with a high number of gains (5-6) and low spacing between them (0.1-0.2). Spacing here means the difference between two adjacend gains within the same list (e.g. spacing=0.2, gains = [0.2, 0.4, 0.6, etc]). The spacing seems to have a higher impact and mse scores generally increase with longer simulation times.<br>
 **07.03.:** Tweaks on how results are saved. Added the possibility to repeat the simulation multiple times for different sets of gain parameters<br>
 **07.03.:** Added documentation for the GridNetwork file. Introduced a new function to generate and save the activity plot for each grid cell neuron.<br>
@@ -39,7 +40,6 @@ This project aims to implement self localisation using a grid cell model as pres
 
 ## Current Tasks (no particular order):
 1. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
-1. Revert the project to run only a single simulation using the best performing set of gains
-3. Add altitude control to the random walk and GridNetwork.
-4. Test the feasibility and processing time of path prediction during simulation.
+3. Refine the position prediction algorithm.
+1. Add altitude control to the random walk and GridNetwork.
 1. Plot the prediction error over time if possible to investigate time-dependency.
