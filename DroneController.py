@@ -54,7 +54,7 @@ class DroneController:
 
         print('DroneController initialized')
 
-    def update(self, direction, yaw_rate_command, altitude_adjustment):
+    def update(self, direction, altitude_adjustment):
         """
         Update the controller based on desired movement and sensor readings.
         
@@ -94,11 +94,16 @@ class DroneController:
         # Command altitude remains at hover_altitude (altitude_adjustment is not applied)
         self.altitude_command = self.hover_altitude
         
+        # Compute yaw
+        desired_yaw = yaw
+        if (np.linalg.norm(direction) > 0):
+            desired_yaw = np.arctan2(direction[1], direction[0])
+
         # Compute motor speeds using the PID controller
         motor_speeds = self.pid_controller.compute(
             dt,
-            desired_forward, desired_side, yaw_rate_command, self.altitude_command,
-            roll, pitch, yaw_rate,
+            desired_forward, desired_side, desired_yaw, self.altitude_command,
+            roll, pitch, yaw, yaw_rate,
             altitude, vx_body, vy_body
         )
         
@@ -137,11 +142,13 @@ class PIDVelocityController:
         self.prev_pitch_error = 0.0
         self.prev_roll_error = 0.0
         self.altitude_integrator = 0.0
+        self.prev_yaw_error = 0.0
+        self.yaw_integrator = 0.0
 
         print('PIDVelocityController initialized')
 
-    def compute(self, dt, desired_vx, desired_vy, desired_yaw_rate, desired_altitude,
-                actual_roll, actual_pitch, actual_yaw_rate, actual_altitude,
+    def compute(self, dt, desired_vx, desired_vy, desired_yaw, desired_altitude,
+                actual_roll, actual_pitch, actual_yaw, actual_yaw_rate, actual_altitude,
                 actual_vx, actual_vy):
         """
         Compute motor commands using PID control.
@@ -172,18 +179,30 @@ class PIDVelocityController:
             "kd_vel_xy": 0.5,
             "kp_z": 10.0,
             "ki_z": 5.0,
-            "kd_z": 5.0
+            "kd_z": 5.0,
+            "Kp_yaw" : 2.0,
+            "Ki_yaw" : 0.0,
+            "Kd_yaw" : 0.5,
         }
+        clip_bound = 10
         
         # Velocity PID for forward (x) and lateral (y)
         vx_error = desired_vx - actual_vx
         vx_deriv = (vx_error - self.prev_vx_error) / dt
         vy_error = desired_vy - actual_vy
         vy_deriv = (vy_error - self.prev_vy_error) / dt
+        yaw_error = desired_yaw - actual_yaw
+        yaw_error = (yaw_error + np.pi) % (2 * np.pi) - np.pi # Wrap to [-pi, pi]
+        yaw_deriv = (yaw_error - self.prev_yaw_error) / dt
+        self.yaw_integrator += yaw_error * dt
         
-        desired_pitch = gains["kp_vel_xy"] * np.clip(vx_error, -1, 1) + gains["kd_vel_xy"] * vx_deriv
-        desired_roll = -gains["kp_vel_xy"] * np.clip(vy_error, -1, 1) - gains["kd_vel_xy"] * vy_deriv
-        
+        desired_pitch = gains["kp_vel_xy"] * np.clip(vx_error, -clip_bound, clip_bound) + gains["kd_vel_xy"] * vx_deriv
+        desired_roll = -gains["kp_vel_xy"] * np.clip(vy_error, -clip_bound, clip_bound) - gains["kd_vel_xy"] * vy_deriv
+        yaw_rate_command = (gains["Kp_yaw"] * yaw_error
+                        + gains["Ki_yaw"] * self.yaw_integrator
+                        + gains["Kd_yaw"] * yaw_deriv)
+    
+        self.prev_yaw_error = yaw_error    
         self.prev_vx_error = vx_error
         self.prev_vy_error = vy_error
         
@@ -193,7 +212,7 @@ class PIDVelocityController:
         self.altitude_integrator += alt_error * dt
         alt_command = (gains["kp_z"] * alt_error +
                        gains["kd_z"] * alt_deriv +
-                       gains["ki_z"] * np.clip(self.altitude_integrator, -2, 2) + 48) # 48 is the bare minimum velocity for lift off 
+                       gains["ki_z"] * np.clip(self.altitude_integrator, -clip_bound, clip_bound) + 48) # 48 is the bare minimum velocity for lift off 
         self.prev_alt_error = alt_error
         
         # Attitude PID for pitch, roll, and yaw rate
@@ -201,11 +220,11 @@ class PIDVelocityController:
         pitch_deriv = (pitch_error - self.prev_pitch_error) / dt
         roll_error = desired_roll - actual_roll
         roll_deriv = (roll_error - self.prev_roll_error) / dt
-        yaw_rate_error = desired_yaw_rate - actual_yaw_rate
+        yaw_rate_error = yaw_rate_command - actual_yaw_rate
         
-        roll_command = gains["kp_att_rp"] * np.clip(roll_error, -1, 1) + gains["kd_att_rp"] * roll_deriv
-        pitch_command = -gains["kp_att_rp"] * np.clip(pitch_error, -1, 1) - gains["kd_att_rp"] * pitch_deriv
-        yaw_command = gains["kp_att_y"] * np.clip(yaw_rate_error, -1, 1)
+        roll_command = gains["kp_att_rp"] * np.clip(roll_error, -clip_bound, clip_bound) + gains["kd_att_rp"] * roll_deriv
+        pitch_command = -gains["kp_att_rp"] * np.clip(pitch_error, -clip_bound, clip_bound) - gains["kd_att_rp"] * pitch_deriv
+        yaw_command = gains["kp_att_y"] * np.clip(yaw_rate_error, -clip_bound, clip_bound)
         
         self.prev_pitch_error = pitch_error
         self.prev_roll_error = roll_error

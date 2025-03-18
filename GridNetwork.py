@@ -57,6 +57,7 @@ class GridNetwork:
         '''
         self.gains = gains
         self.update_network_shape()  # Update network_activity shape when gains are changed
+        self.n = self.N * len(self.gains) 
 
     def initialize_distance_matrix(self):
         ''' Vectorized version to initialize the distance matrix between all neurons.
@@ -346,7 +347,7 @@ class GridNetwork:
         :params mse_mean: float, the mean-square-error of the prediction
         :params r2_mean: float, the r2-error of the prediction
         '''
-        size = int(len(y)/20)
+        size = int(len(y)/2)
         size = np.clip(size, 10, 10000)
         plt.figure(figsize=(8, 6))
         plt.plot(y[-size:, 0], y[-size:, 1], 'b.-', label="Actual Path", alpha=0.6) 

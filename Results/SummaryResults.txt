@@ -126,3 +126,7 @@ ID:15, gains:[0.2, 0.6, 1.0, 1.4, 1.8, 2.2]
 mse_mean:0.14135	mse_shuffeled:0.93375
 r2_mean:0.8486	r2_shuffeled:-0.01625
  --- 
+ID:Main, gains:[0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+mse_mean:0.00064	mse_shuffeled:0.73277
+r2_mean:0.99905	r2_shuffeled:-0.01335
+ --- 

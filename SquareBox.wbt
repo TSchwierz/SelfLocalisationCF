@@ -11,22 +11,25 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/Plaster.proto"
 
 WorldInfo {
+  FPS 30
 }
 Viewpoint {
-  orientation -0.5243103986777621 0.5190937584337252 0.6750113153077621 1.963339541823968
-  position 0.01724181584695858 -2.924264009068634 11.570444573951372
+  orientation -0.5771963302948369 0.5657663550877873 0.5888572218669422 2.0946309240604073
+  position -0.0014380052726608306 -0.14577676612129553 9.84021898188194
   follow "Crazyflie"
+  followType "None"
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
+  castShadows FALSE
 }
 Floor {
   size 6 6
   appearance Parquetry {
   }
 }
-Crazyflie {
+DEF Crazyflie Crazyflie {
   controller "<extern>"
   supervisor TRUE
   extensionSlot [
