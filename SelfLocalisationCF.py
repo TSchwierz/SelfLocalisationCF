@@ -24,13 +24,14 @@ import pickle
 # ---------------- Simulation Parameters ----------------
 FLYING_ATTITUDE = 1              # Base altitude (z-value) for flying
 INITIAL_PAUSE = 6                # Time (in seconds) for the drone to lift off and stabilize
-COMMAND_INTERVAL = 1             # Interval (in seconds) between new movement commands
+COMMAND_INTERVAL = 0.5           # Interval (in seconds) between new movement commands
 COMMAND_TOLERANCE = 0.032        # Tolerance (in seconds) for command timing
 MOVEMENT_MAGNITUDE = 1.0         # Magnitude of the movement vector in the xy-plane
 DRIFT_COEFFICIENT = 0.03         # Lowered drift coefficient to reduce abrupt corrections
-ARENA_BOUNDARIES = np.array([[-2.8, 2.8],  # x boundaries
-                             [-2.8, 2.8],  # y boundaries
+ARENA_BOUNDARIES = np.array([[-2.5, 2.5],  # x boundaries
+                             [-2.5, 2.5],  # y boundaries
                              [0.5, 3.5]])      # z boundaries
+NEURAL_NOISE_RATIO = 0.01
 
 # ---------------- Helper Functions ----------------
 def plot_fitting_results(n, spacing, score):
@@ -184,7 +185,7 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.1):
     return np.array([np.cos(new_angle), np.sin(new_angle)]) * magnitude
 
 # ---------------- Main Simulation Loop ----------------
-def main(ID, gains, robot_, simulated_hours=1, predict_during_simulation=False):
+def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False):
     os.makedirs(f"Results\\ID{ID}", exist_ok=True)
     # Initialize simulation components
     robot = robot_
@@ -194,11 +195,10 @@ def main(ID, gains, robot_, simulated_hours=1, predict_during_simulation=False):
     grid_network = GridNetwork(9, 10) # make a network with Nx=9 x Ny=10 neurons 
     grid_network.set_gains(gains)
     #grid_network = load_object('data.pickle')
-    kf, rls = PredictionModel.makeKFandRLS(grid_network.n, 2)
+    rls = PredictionModel.makeKFandRLS(grid_network.n, 2)
     
     # Initialize state variables
     previous_direction = np.array([0, 0])  # Initial xy movement direction
-    yaw = 0                              # Initial yaw (no rotation)
     altitude = FLYING_ATTITUDE           # Constant base altitude
     target_altitude = altitude           # Target altitude (may be updated)
     elapsed_time = 0
@@ -206,12 +206,14 @@ def main(ID, gains, robot_, simulated_hours=1, predict_during_simulation=False):
     position_log = []
     current_position = np.array([0, 0])
     predicted_pos_log = []
+    noise_covariance = np.array([[0.01, 0.],
+                                 [0., 0.01]])
 
     if(predict_during_simulation):
         predicted_pos_log = []
         prediction_mse_log = []
     
-    MAX_SIMULATION_TIME = 3600 * simulated_hours # 1h in seconds * amount of hours
+    MAX_SIMULATION_TIME = 60 * simulated_minutes # 1m in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
     print(f'Starting Simulation\nID:{ID}, gains:{gains}')
     # Main loop: run until simulation termination signal or time limit reached
@@ -223,15 +225,14 @@ def main(ID, gains, robot_, simulated_hours=1, predict_during_simulation=False):
 
         # Default movement: no change unless a new command is issued at the interval
         movement_direction = np.array([0, 0])
-        yaw = 0
         
         # Issue a new movement command at defined intervals (after the initial pause)
         if elapsed_time >= INITIAL_PAUSE and (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
             # Generate random movement commands
             target_altitude = altitude # keeping it constant for now #get_new_altitude(altitude) 
             smooth_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.33) # Update xy-direction using a small-angle random walk        
-            drift = compute_drift_vector(np.concatenate((current_position, [altitude]))) # Add drift toward the arena center
-            movement_direction = smooth_direction + drift
+            #drift = compute_drift_vector(np.concatenate((current_position, [altitude]))) # Add drift toward the arena center
+            movement_direction = smooth_direction# + drift
             
             # Form the complete 3D movement vector
             current_3d_position = np.concatenate((current_position, [altitude]))
@@ -242,21 +243,25 @@ def main(ID, gains, robot_, simulated_hours=1, predict_during_simulation=False):
 
             #movement_direction = (velocity + movement_direction)/2 # use the average between new direction and current velocity for smoothness
             previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
-            #yaw += 0.2
         
         # Update the drone's state with the new movement command
-        current_position, velocity, altitude = controller.update(movement_direction, yaw, target_altitude)       
+        current_position, velocity, altitude = controller.update(movement_direction, target_altitude)
         grid_network.update_network(velocity*dt)
         activity = grid_network.network_activity.copy()
 
         if (predict_during_simulation):
-            H = rls.update(activity, current_position)
-            z = np.dot(H, current_position) # normaly add noise
-            kf.predict()
-            predicted_pos_log.append(kf.update(z))
+            predicted_pos_log.append(rls.predict(activity))
+            prediction_mse_log.append(np.linalg.norm(predicted_pos_log-current_position))
+
+            noisy_position = current_position # + np.random.multivariate_normal(current_position, noise_covariance)
+            noisy_activity = activity + NEURAL_NOISE_RATIO * np.random.normal(0, 0.1, np.shape(activity))
+            rls.update(noisy_activity, noisy_position) # update using noise
 
         position_log.append(current_position)
         network_states.append(activity)
+        
+        if (np.linalg.norm(current_position) > 5 ):
+            break
     
     # ---------------- End of Simulation ----------------
     print(f'Simulation finished at {elapsed_time/60:.0f} minutes')
@@ -276,11 +281,12 @@ def main(ID, gains, robot_, simulated_hours=1, predict_during_simulation=False):
     print('Saved activity plot\nCalculating prediction...')
     
     if (predict_during_simulation):
-       grid_network.plot_prediction_path(np.array(position_log), np.array(predicted_pos_log), 0, 0, ID=ID)
-       mse_mean = 'NaN'
-       mse_shuffeled = 'Nan'
-       r2_mean = 'NaN'
-       r2_shuffeled = 'NaN'
+        mse_mean = np.mean(prediction_mse_log)
+        PredictionModel.plot_prediction_path(np.array(position_log), np.array(predicted_pos_log), mse_mean, ID=ID)
+        mse_mean = 'NaN'
+        mse_shuffeled = 'Nan'
+        r2_mean = 'NaN'
+        r2_shuffeled = 'NaN'
     else:
          # Predict the position using a linear model and plot the results
         X, y, y_pred, mse_mean, mse_shuffeled, r2_mean, r2_shuffeled = grid_network.fit_linear_model(network_states, position_log, return_shuffled=True)
@@ -289,13 +295,14 @@ def main(ID, gains, robot_, simulated_hours=1, predict_during_simulation=False):
         
 
     # Save the results of the network
+    ''' Not necessarly useful anymore
     save_object(grid_network, f'Results\\ID{ID}\\network{ID}.pickle')
     with open(f'Results\\SummaryResults.txt', 'a') as file:
         file.write(f'ID:{ID}, gains:{gains}\nmse_mean:{mse_mean}\tmse_shuffeled:{mse_shuffeled}\nr2_mean:{r2_mean}\tr2_shuffeled:{r2_shuffeled}\n --- \n')
         file.close()
     print(f'Saved Network.')
+    '''
     print(f'Finished execution of ID{ID}')
-    return mse_mean
 
 if __name__ == '__main__':
     robot = Robot()
@@ -309,6 +316,6 @@ if __name__ == '__main__':
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    mse_mean = main(ID=id_, gains=gains, robot_=robot, simulated_hours=0.1, predict_during_simulation=True)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=10.0, predict_during_simulation=True)
 
     #plot_fitting_results(nr, spacing, mse_means)

@@ -1,34 +1,59 @@
-import numpy as np
+﻿import numpy as np
 import matplotlib.pyplot as plt
-import scipy as sp
-from sklearn.model_selection import cross_val_predict, cross_val_score, KFold
-from sklearn.linear_model import Ridge, LinearRegression
+from time import perf_counter
+
+def plot_prediction_path(y, y_pred, mse_mean, ID=0):
+    '''
+    Plots the predicted path and the actual path and saves the plot under the results folder in the relative directory
+
+    :params y: np.array (ntime, ndim), actual path
+    :params y_pred: np.array (ntime, ndim), predicted path
+    :params mse_mean: float, the mean-square-error of the prediction
+    '''
+    size = int(len(y)/5)
+    size = np.clip(size, 10, 10000)
+    plt.figure(figsize=(12, 7))
+    plt.subplot(2,1,1)
+    plt.plot(y[-size:, 0], y[-size:, 1], 'b-', label="Actual Path", alpha=0.6) 
+    plt.plot(y_pred[-size:, 0], y_pred[-size:, 1], 'r:', label="Predicted Path", alpha=0.6)
+    plt.xlabel("X Position")
+    plt.ylabel("Y Position")
+    plt.legend()
+    plt.title(f'Actual vs Predicted Positions. MSE={mse_mean}. Last {size} iterations')
+    plt.subplot(2,1,2)
+    plt.plot(y[:size, 0], y[:size, 1], 'b-', label='y')
+    plt.plot(y_pred[:size, 0], y_pred[:size, 1], 'r:', label='y_pred')
+    plt.legend()
+    plt.title(f'Actual vs Prediction for first {size} iterations')
+    plt.tight_layout()
+    plt.savefig(f'Results\\ID{ID}\\result_prediction.png', format='png')
+    plt.close()
 
 def makeKFandRLS(feature_dim, pos_dim, process_noise=0.1, measurement_noise=1.):
     
-    A = np.array([[1, 0],
-              [0, 1]])
+    #A = np.array([[1, 0],
+    #          [0, 1]])
     # Process noise covariance matrix (tuning parameter)
-    Q = np.eye(pos_dim) * process_noise
+    #Q = np.eye(pos_dim) * process_noise
 
     # Measurement noise covariance matrix (tuning parameter, n x n)
-    R = np.eye(feature_dim) * measurement_noise
+    #R = np.eye(feature_dim) * measurement_noise
 
     # Observation matrix: mapping from 2D state to n-dimensional neural activity.
     # This needs to be updated using rls on every timestep
-    np.random.seed(42)
-    H = np.random.randn(feature_dim, pos_dim)
+    #np.random.seed(42)
+    #H = np.random.randn(feature_dim, pos_dim)
 
     # Initial state: [x, y]
-    x0 = np.array([0, 0])
+    #x0 = np.array([0, 0])
 
     # Initial error covariance
-    P0 = np.eye(pos_dim) * measurement_noise
+    #P0 = np.eye(pos_dim) * measurement_noise
 
     # Instantiate the Kalman filter
-    kf = KalmanFilter(A, H, Q, R, x0, P0)
-    rls = RLSRegressor(feature_dim, pos_dim, lambda_=0.99, delta=1e5)
-    return kf, rls
+    #kf = KalmanFilter(A, H, Q, R, x0, P0)
+    rls = RLSRegressor(feature_dim, pos_dim, lambda_=0.999, delta=1e2)
+    return rls
 
 class KalmanFilter:
     def __init__(self, A, H, Q, R, x0, P0):
@@ -70,7 +95,7 @@ class KalmanFilter:
         """
         S = np.dot(np.dot(self.H, self.P), self.H.T) + self.R
         K = np.dot(np.dot(self.P, self.H.T), np.linalg.inv(S))
-        y = z - np.dot(self.H, self.x)  # Innovation: difference between measured and predicted neural activity
+        y = z - np.dot(self.H, self.x)
         self.x = self.x + np.dot(K, y)
         I = np.eye(self.P.shape[0])
         self.P = np.dot((I - np.dot(K, self.H)), self.P)
@@ -94,6 +119,7 @@ class RLSRegressor:
         self.W = np.zeros((num_features, num_outputs))
         # Inverse covariance matrix, initialized as a large multiple of the identity matrix.
         self.P = np.eye(num_features) * delta
+        self.eps = 1e-5 # small constant to mitigate blow up in covariance matrix
 
     def update(self, phi, d):
         """
@@ -109,18 +135,19 @@ class RLSRegressor:
         # Ensure column vector format for phi and d
         phi = phi.reshape(-1, 1)  # shape: (num_features, 1)
         d = d.reshape(-1, 1)      # shape: (num_outputs, 1)
-        
+
         # Compute the denominator (a scalar)
-        denom = self.lambda_ + np.dot(phi.T, np.dot(self.P, phi))
+        denom = self.lambda_ + np.dot(phi.T, np.dot(self.P, phi)) + self.eps
+
         # Compute the gain vector (shape: num_features x 1)
         K = np.dot(self.P, phi) / denom
-        
+
         # Compute the prediction error (innovation) (shape: num_outputs x 1)
         error = d - np.dot(self.W.T, phi)
-        
+
         # Update the weight matrix; K (num_features x 1) multiplied by error.T (1 x num_outputs)
         self.W = self.W + np.dot(K, error.T)
-        
+
         # Update the inverse covariance matrix
         self.P = (self.P - np.dot(K, np.dot(phi.T, self.P))) / self.lambda_
         return self.W
