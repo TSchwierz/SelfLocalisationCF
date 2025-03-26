@@ -31,7 +31,7 @@ DRIFT_COEFFICIENT = 0.03         # Lowered drift coefficient to reduce abrupt co
 ARENA_BOUNDARIES = np.array([[-2.5, 2.5],  # x boundaries
                              [-2.5, 2.5],  # y boundaries
                              [0.5, 3.5]])      # z boundaries
-NEURAL_NOISE_RATIO = 0.01
+NEURAL_NOISE_VAR = 0.01 * 5#%    # The value of the standart variation for noise on network activity (normalised to 0.0-1.0)
 
 # ---------------- Helper Functions ----------------
 def plot_fitting_results(n, spacing, score):
@@ -192,7 +192,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     timestep_ms = int(robot.getBasicTimeStep())
     dt = timestep_ms / 1000.0  # Convert timestep to seconds
     controller = DroneController(robot, FLYING_ATTITUDE)
-    grid_network = GridNetwork(9, 10) # make a network with Nx=9 x Ny=10 neurons 
+    grid_network = GridNetwork(10, 9) # make a network with Nx=10 x Ny=9 neurons 
     grid_network.set_gains(gains)
     #grid_network = load_object('data.pickle')
     rls = PredictionModel.makeKFandRLS(grid_network.n, 2)
@@ -206,8 +206,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     position_log = []
     current_position = np.array([0, 0])
     predicted_pos_log = []
-    noise_covariance = np.array([[0.01, 0.],
-                                 [0., 0.01]])
+    #noise_covariance = np.array([[0.01, 0.], [0., 0.01]])
 
     if(predict_during_simulation):
         predicted_pos_log = []
@@ -250,11 +249,12 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         activity = grid_network.network_activity.copy()
 
         if (predict_during_simulation):
-            predicted_pos_log.append(rls.predict(activity))
-            prediction_mse_log.append(np.linalg.norm(predicted_pos_log-current_position))
+            noisy_activity = activity + np.random.normal(0, NEURAL_NOISE_VAR, np.shape(activity))
+            prediction_pos = rls.predict(noisy_activity)
+            predicted_pos_log.append(prediction_pos)
+            prediction_mse_log.append((prediction_pos-current_position)**2)
 
-            noisy_position = current_position # + np.random.multivariate_normal(current_position, noise_covariance)
-            noisy_activity = activity + NEURAL_NOISE_RATIO * np.random.normal(0, 0.1, np.shape(activity))
+            noisy_position = current_position #+ np.random.multivariate_normal(current_position, noise_covariance)           
             rls.update(noisy_activity, noisy_position) # update using noise
 
         position_log.append(current_position)
@@ -283,7 +283,6 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     if (predict_during_simulation):
         mse_mean = np.mean(prediction_mse_log)
         PredictionModel.plot_prediction_path(np.array(position_log), np.array(predicted_pos_log), mse_mean, ID=ID)
-        mse_mean = 'NaN'
         mse_shuffeled = 'Nan'
         r2_mean = 'NaN'
         r2_shuffeled = 'NaN'
@@ -311,11 +310,11 @@ if __name__ == '__main__':
     #trans_field = robot_node.getField("translation")
 
     #INITIAL = [0, 0, 1]
-    gains = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    gains = [0.1, 0.2, 0.3, 0.4, 0.5]
     id_ = 'SimultaneousPrediction'
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=10.0, predict_during_simulation=True)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=15.0, predict_during_simulation=True)
 
     #plot_fitting_results(nr, spacing, mse_means)

@@ -211,7 +211,7 @@ class GridNetwork:
         colorbar.set_ticklabels([f'{0:.2f}', f'{0.5:.2f}', f'{1:.2f}'])  # Set tick labels
 
         positions_array = np.array(positions_array) # enable numpy slicing      
-        trajectory_ax = fig.add_subplot(gs[1, 1:4])  # Adding subplot for the bottom row # Spanning 3 columns in the middle
+        trajectory_ax = fig.add_subplot(gs[1, 1:len(self.gains)])  # Adding subplot for the bottom row
         trajectory_ax.plot(positions_array[:, 0], positions_array[:, 1], alpha=0.7, color='purple')
         trajectory_ax.set_title('Effective Arena with travelled path', fontsize=20)
         trajectory_ax.set_aspect('equal')
