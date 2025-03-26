@@ -1,4 +1,4 @@
-"""
+﻿"""
 Drone Simulation Script
 -----------------------
 This script simulates a drone's movement within a defined arena. The drone's motion is determined by:
@@ -10,6 +10,7 @@ The simulation logs the drone's position and grid network activity, then visuali
 predicts the drone's path using a linear model.
 """
 
+from asyncio.windows_events import NULL
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,16 +25,46 @@ import pickle
 # ---------------- Simulation Parameters ----------------
 FLYING_ATTITUDE = 1              # Base altitude (z-value) for flying
 INITIAL_PAUSE = 6                # Time (in seconds) for the drone to lift off and stabilize
-COMMAND_INTERVAL = 0.5           # Interval (in seconds) between new movement commands
+COMMAND_INTERVAL = 1           # Interval (in seconds) between new movement commands
 COMMAND_TOLERANCE = 0.032        # Tolerance (in seconds) for command timing
 MOVEMENT_MAGNITUDE = 1.0         # Magnitude of the movement vector in the xy-plane
 DRIFT_COEFFICIENT = 0.03         # Lowered drift coefficient to reduce abrupt corrections
 ARENA_BOUNDARIES = np.array([[-2.5, 2.5],  # x boundaries
                              [-2.5, 2.5],  # y boundaries
-                             [0.5, 3.5]])      # z boundaries
+                             [1, 3]])      # z boundaries
 NEURAL_NOISE_VAR = 0.01 * 5#%    # The value of the standart variation for noise on network activity (normalised to 0.0-1.0)
 
 # ---------------- Helper Functions ----------------
+def plot_3d_trajectory(pos, ID='null'):
+    x, y, z = pos[:,0], pos[:,1], pos[:,2]
+
+    start, stop = 0, len(x)
+    time = np.linspace(start, stop, stop) / stop
+    plt.plot(time, x[start:stop], 'b:', label='x')
+    plt.plot(time, y[start:stop], 'r:', label='y')
+    plt.plot(time, z[start:stop], 'g:', label='z')
+    plt.axhline(ARENA_BOUNDARIES[0,0], c='y', label = 'x-y limit')
+    plt.axhline(ARENA_BOUNDARIES[0,1], c='y')
+    plt.axhline(ARENA_BOUNDARIES[2,0], c='b', label = 'alt limit')
+    plt.axhline(ARENA_BOUNDARIES[2,1], c='b')
+    plt.ylim(-3, 4)
+    plt.grid()
+    plt.legend()
+
+    plt.savefig(f'Results\\ID{ID}\\3d_trajectory_timeplot.png', format='png')
+    plt.close()
+
+    ax = plt.figure().add_subplot(projection='3d')
+    ax.plot(x[:stop], y[:stop], z[:stop], label='path')
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('z')
+    ax.legend()
+
+    plt.savefig(f'Results\\ID{ID}\\3d_trajectory_spaceplot.png', format='png')
+    plt.close()
+
+
 def plot_fitting_results(n, spacing, score):
     '''
     Plot the scoring of gain configurations as a heatmap based on the number of gains and the spacing between them
@@ -144,7 +175,7 @@ def adjust_for_boundaries(boundaries, position, movement_vector):
         elif new_position[i] > upper_bounds[i]:
             # Move only as much as needed to hit the upper bound
             adjusted_vector[i] = upper_bounds[i] - position[i]
-    return adjusted_vector[:2], adjusted_vector[2]
+    return adjusted_vector
 
 def get_new_altitude(current_altitude, sigma=0.25):
     """
@@ -184,6 +215,55 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.1):
     new_angle = (new_angle + np.pi) % (2 * np.pi) - np.pi
     return np.array([np.cos(new_angle), np.sin(new_angle)]) * magnitude
 
+def update_direction3D(current_direction, magnitude, dt, angular_std=0.1):
+    """
+    Update the drone's movement direction in 3D using a small random rotation.
+    
+    This function performs a random walk on the unit sphere. At each update, the current
+    direction is perturbed by a small random rotation about a random axis perpendicular to
+    the current direction. The rotation angle is drawn from a normal distribution (scaled by √dt
+    for consistency with time resolution), resulting in smooth and continuous changes in direction.
+    
+    :param current_direction: Current 3D movement vector.
+    :param magnitude: Desired magnitude of the new movement vector.
+    :param dt: Time step (in seconds).
+    :param angular_std: Standard deviation of the angular change (as a fraction of pi).
+    :return: Updated 3D movement vector with the specified magnitude.
+    """
+    norm_curr = np.linalg.norm(current_direction)
+    if norm_curr < 1e-6:
+        # If current_direction is near zero, choose a random direction uniformly on the sphere.
+        random_vec = np.random.randn(3)
+        unit_current = random_vec / np.linalg.norm(random_vec)
+    else:
+        unit_current = current_direction / norm_curr
+
+    # Draw a small random rotation angle (scaled by √dt)
+    d_angle = np.random.normal(0, angular_std * np.pi * np.sqrt(dt))
+    
+    # If the rotation angle is effectively zero, return the current direction (scaled).
+    if np.abs(d_angle) < 1e-8:
+        return unit_current * magnitude
+
+    # Generate a random vector and project it to get a vector perpendicular to unit_current.
+    random_vector = np.random.randn(3)
+    perp = random_vector - np.dot(random_vector, unit_current) * unit_current
+    perp_norm = np.linalg.norm(perp)
+    if perp_norm < 1e-6:
+        # Fallback: choose an arbitrary perpendicular vector.
+        if np.abs(unit_current[0]) < 0.9:
+            perp = np.cross(unit_current, np.array([1, 0, 0]))
+        else:
+            perp = np.cross(unit_current, np.array([0, 1, 0]))
+        perp_norm = np.linalg.norm(perp)
+    axis = perp / perp_norm
+
+    # Use Rodrigues rotation formula to compute the rotated vector. simplifies to:
+    #   v_rot = v*cos(theta) + (a x v)*sin(theta)
+    new_direction = np.cos(d_angle) * unit_current + np.sin(d_angle) * np.cross(axis, unit_current)
+    
+    return new_direction * magnitude
+
 # ---------------- Main Simulation Loop ----------------
 def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False):
     os.makedirs(f"Results\\ID{ID}", exist_ok=True)
@@ -198,69 +278,65 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     rls = PredictionModel.makeKFandRLS(grid_network.n, 2)
     
     # Initialize state variables
-    previous_direction = np.array([0, 0])  # Initial xy movement direction
+    previous_direction = np.array([0, 0, 0])  # Initial xyz movement direction
     altitude = FLYING_ATTITUDE           # Constant base altitude
     target_altitude = altitude           # Target altitude (may be updated)
     elapsed_time = 0
     network_states = []
     position_log = []
-    current_position = np.array([0, 0])
-    predicted_pos_log = []
-    #noise_covariance = np.array([[0.01, 0.], [0., 0.01]])
-
+    current_position = np.array(robot_.getDevice("gps").getValues())
     if(predict_during_simulation):
         predicted_pos_log = []
         prediction_mse_log = []
     
-    MAX_SIMULATION_TIME = 60 * simulated_minutes # 1m in seconds * amount of hours
+    MAX_SIMULATION_TIME = 60 * simulated_minutes # 1min in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
     print(f'Starting Simulation\nID:{ID}, gains:{gains}')
     # Main loop: run until simulation termination signal or time limit reached
     while robot.step(timestep_ms) != -1 and elapsed_time < MAX_SIMULATION_TIME:
         elapsed_time += dt  # Update elapsed time in seconds
-        
+
+        # print progress
         if (elapsed_time%UPDATE_INTERVAL<= dt):
             print(f'{datetime.now().time()} - simulated time: {int(elapsed_time/60)} of {MAX_SIMULATION_TIME/60} minutes {elapsed_time/MAX_SIMULATION_TIME:.1%}')
-
-        # Default movement: no change unless a new command is issued at the interval
-        movement_direction = np.array([0, 0])
         
-        # Issue a new movement command at defined intervals (after the initial pause)
-        if elapsed_time >= INITIAL_PAUSE and (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
-            # Generate random movement commands
-            target_altitude = altitude # keeping it constant for now #get_new_altitude(altitude) 
-            smooth_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.33) # Update xy-direction using a small-angle random walk        
-            #drift = compute_drift_vector(np.concatenate((current_position, [altitude]))) # Add drift toward the arena center
-            movement_direction = smooth_direction# + drift
-            
-            # Form the complete 3D movement vector
-            current_3d_position = np.concatenate((current_position, [altitude]))
-            movement_3d = np.concatenate((movement_direction, [target_altitude]))
-            
-            # Adjust the movement to respect arena boundaries
-            movement_direction[:2], target_altitude = adjust_for_boundaries(ARENA_BOUNDARIES, current_3d_position, movement_3d)
+        # Initial start-up phase (Drone needs to get to stable hover altitude)
+        if (elapsed_time < INITIAL_PAUSE):
+            current_position, velocity = controller.update([0,0]) # desired initial position
 
-            #movement_direction = (velocity + movement_direction)/2 # use the average between new direction and current velocity for smoothness
-            previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
+        # After Initial start-up
+        else:
+            # Default movement: no change unless a new command is issued at the interval
+            movement_direction = np.array([0, 0])
         
-        # Update the drone's state with the new movement command
-        current_position, velocity, altitude = controller.update(movement_direction, target_altitude)
-        grid_network.update_network(velocity*dt)
-        activity = grid_network.network_activity.copy()
-
-        if (predict_during_simulation):
-            noisy_activity = activity + np.random.normal(0, NEURAL_NOISE_VAR, np.shape(activity))
-            prediction_pos = rls.predict(noisy_activity)
-            predicted_pos_log.append(prediction_pos)
-            prediction_mse_log.append((prediction_pos-current_position)**2)
-
-            noisy_position = current_position #+ np.random.multivariate_normal(current_position, noise_covariance)           
-            rls.update(noisy_activity, noisy_position) # update using noise
-
-        position_log.append(current_position)
-        network_states.append(activity)
+            # Issue a new movement command at defined intervals (after the initial pause)
+            if (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
+                movement_direction = update_direction3D(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.33) # Update direction using a small-angle random walk     
+                movement_direction = adjust_for_boundaries(ARENA_BOUNDARIES, current_position, movement_direction) # Adjust the movement to respect arena boundaries
+                previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
+                #print(movement_direction)
         
-        if (np.linalg.norm(current_position) > 5 ):
+            # Controller + Network Update
+            current_position, velocity = controller.update(movement_direction)
+            grid_network.update_network(velocity[:2]*dt)
+            activity = grid_network.network_activity.copy()
+
+            # network online prediction
+            if (predict_during_simulation):
+                noisy_activity = activity + np.random.normal(0, NEURAL_NOISE_VAR, np.shape(activity))
+                prediction_pos = rls.predict(noisy_activity)
+                predicted_pos_log.append(prediction_pos)
+                prediction_mse_log.append((prediction_pos-current_position)**2)
+
+                noisy_position = current_position #+ np.random.multivariate_normal(current_position, noise_covariance #not implemented)           
+                rls.update(noisy_activity, noisy_position) # update using noise
+
+            # saving values
+            position_log.append(current_position)
+            network_states.append(activity)
+        
+        # fail save, adjust for actual arena radius size
+        if (np.linalg.norm(current_position[:2]) > 2*(2.5**2)):
             break
     
     # ---------------- End of Simulation ----------------
@@ -271,10 +347,13 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     # Compute the effective arena size (maximum radial distance reached)
     arena_size = np.sqrt(np.max(np.sum(np.array(position_log)**2, axis=1)))
     print(f' - effective Arena size: {arena_size}')
+
+    # 3D path
+    plot_3d_trajectory(np.array(position_log), ID)
     
     # Visualize the network activity and complete path coverage
     print('Generating Images...')
-    grid_network.plot_frame_figure(positions_array=position_log, network_activity=network_states, num_bins=60, ID=ID)
+    #grid_network.plot_frame_figure(positions_array=position_log, network_activity=network_states, num_bins=60, ID=ID)
 
     # Generate activity plots for each neuron
     #grid_network.plot_activity_neurons(np.array(position_log), num_bins=60, neuron_range=range(grid_network.N), network_activity=np.array(network_states), ID=ID)
@@ -311,10 +390,10 @@ if __name__ == '__main__':
 
     #INITIAL = [0, 0, 1]
     gains = [0.1, 0.2, 0.3, 0.4, 0.5]
-    id_ = 'SimultaneousPrediction'
+    id_ = 'Naive_3D'
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=15.0, predict_during_simulation=True)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=15.0, predict_during_simulation=False)
 
     #plot_fitting_results(nr, spacing, mse_means)

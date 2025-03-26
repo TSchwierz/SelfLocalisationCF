@@ -47,62 +47,60 @@ class DroneController:
         self.gyro.enable(timestep)
         
         # Initialize state variables
-        self.past_pos = np.array([0, 0])
+        self.past_pos = np.array([0, 0, 0])
         self.past_time = 0.0
         self.hover_altitude = hover_altitude
-        self.altitude_command = hover_altitude
 
         print('DroneController initialized')
 
-    def update(self, direction, altitude_adjustment):
+    def update(self, direction): # Override for 3d movement
         """
         Update the controller based on desired movement and sensor readings.
         
         Args:
-            direction (np.array): Desired direction vector (global frame) for movement.
-            yaw_rate_command (float): Desired yaw rate.
-            altitude_adjustment (float): Change to apply to the desired altitude (currently not used).
+            direction (np.array): Desired 3d direction vector (global frame) for movement.
         
         Returns:
-            tuple: (current position (np.array), global velocity (np.array), altitude (float))
+            tuple: (current position (np.array), global velocity (np.array))
         """
-        current_time = self.robot.getTime()
-        dt = current_time - self.past_time
-        
         # Get sensor data
         roll, pitch, yaw = self.imu.getRollPitchYaw()
         yaw_rate = self.gyro.getValues()[2]
         gps_values = self.gps.getValues()
-        pos_global = np.array(gps_values[:2])
+        pos_global = np.array(gps_values)
         altitude = gps_values[2]
 
-        flipped = (abs(roll) > 90) or (abs(pitch) > 90) # check if drone is flipped upside down
-        
-        # Compute global velocity based on GPS difference
-        global_velocity = (pos_global - self.past_pos) / dt
-        
-        # Convert global velocity to body-fixed frame
-        rotation_matrix = np.array([[cos(yaw), sin(yaw)], 
+        # check for 2d or 3d input
+        if len(direction) == 3 and direction[2]!=0:
+            print(f'alt change = {direction[2]}')
+            horizontal_direction = direction[:2]
+            self.hover_altitude = direction[2] + altitude
+        else:
+            horizontal_direction = direction
+
+        desired_altitude = self.hover_altitude
+
+        # Get velocities
+        current_time = self.robot.getTime()
+        dt = current_time - self.past_time
+        rotation_matrix = np.array([[cos(yaw), sin(yaw)],
                                     [-sin(yaw), cos(yaw)]])
-        body_velocity = rotation_matrix @ global_velocity
-        vx_body, vy_body = body_velocity
+
+        global_velocity = (pos_global - self.past_pos) / dt  
+        vx_body, vy_body = rotation_matrix @ global_velocity[:2] # body-centred current velocity
         
-        # Compute desired velocity in body frame from the global direction
-        desired_velocity_body = rotation_matrix @ direction
-        desired_forward, desired_side = desired_velocity_body
-        
-        # Command altitude remains at hover_altitude (altitude_adjustment is not applied)
-        self.altitude_command = self.hover_altitude
-        
-        # Compute yaw
+        desired_velocity_body = rotation_matrix @ horizontal_direction
+        desired_forward, desired_side = desired_velocity_body  # body centred desired velocity        
+
+        # Compute desired yaw based on horizontal direction
         desired_yaw = yaw
-        if (np.linalg.norm(direction) > 0):
-            desired_yaw = np.arctan2(direction[1], direction[0])
+        if np.linalg.norm(horizontal_direction) > 0:
+            desired_yaw = np.arctan2(horizontal_direction[1], horizontal_direction[0])       
 
         # Compute motor speeds using the PID controller
         motor_speeds = self.pid_controller.compute(
             dt,
-            desired_forward, desired_side, desired_yaw, self.altitude_command,
+            desired_forward, desired_side, desired_yaw, desired_altitude,
             roll, pitch, yaw, yaw_rate,
             altitude, vx_body, vy_body
         )
@@ -112,6 +110,7 @@ class DroneController:
         motor_speeds[2] *= -1
         
         # Reverse action if Drone is flipped
+        flipped = (abs(roll) > 90) or (abs(pitch) > 90) # check if drone is flipped upside down
         if (flipped):
             motor_speeds = [-50, 50, 50, -50] # thurst one side up and other down to turn horizontally 
             print('Drone is flipped, trying to stabilise')
@@ -124,7 +123,7 @@ class DroneController:
         self.past_time = current_time
         self.past_pos = pos_global
         
-        return pos_global, global_velocity, altitude
+        return pos_global, global_velocity
 
 
 class PIDVelocityController:
@@ -177,14 +176,14 @@ class PIDVelocityController:
             "kd_att_rp": 0.1,
             "kp_vel_xy": 2.0,
             "kd_vel_xy": 0.5,
-            "kp_z": 10.0,
-            "ki_z": 5.0,
-            "kd_z": 5.0,
+            "kp_z": 1.0,
+            "ki_z": 0.01,
+            "kd_z": 1.4,
             "Kp_yaw" : 2.0,
             "Ki_yaw" : 0.0,
             "Kd_yaw" : 0.5,
         }
-        clip_bound = 10
+        clip_bound = 15
         
         # Velocity PID for forward (x) and lateral (y)
         vx_error = desired_vx - actual_vx
@@ -212,8 +211,11 @@ class PIDVelocityController:
         self.altitude_integrator += alt_error * dt
         alt_command = (gains["kp_z"] * alt_error +
                        gains["kd_z"] * alt_deriv +
-                       gains["ki_z"] * np.clip(self.altitude_integrator, -clip_bound, clip_bound) + 48) # 48 is the bare minimum velocity for lift off 
+                       gains["ki_z"] * self.altitude_integrator) 
+        alt_command = 48 + (alt_command * 10)  # 48 is the bare minimum velocity for lift off | times a ratio
         self.prev_alt_error = alt_error
+
+        #print(f'alt={actual_altitude}, alt_d={desired_altitude}, alt_e={alt_error}, alt_c={alt_command}')
         
         # Attitude PID for pitch, roll, and yaw rate
         pitch_error = desired_pitch - actual_pitch

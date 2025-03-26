@@ -20,6 +20,7 @@ This project aims to implement self localisation using a grid cell model as pres
 	- A batch file that can be run in the cmd to start the controller in webots
 
 ## Latest Change:
+**26.03.:** Added Height control to the control loop. The drone now moves in all 3 dimensions. The movement seems less random at this moment and more like straight trajectories bouncing of the boundaries. <br>
 **18.03.:** Using RLS alorithm with noisy neural input to do positional predictions online during runtime. The majority of execution time is spent updating the covariance matrix.<br>
 **18.03.:** Made tweaks to the DroneController code. Smooth random movement is now achieved in place of the rigid, grid-like pattern!<br>
 **14.03.:** _WIP_ added a new module implementing a Kalman Filter and RLS algorithm to estimate positions online during simulations. Still needs to be checked and refined. Also computational cost and memory efficiency should be checked. The Repository now has tags to revert it to specific states if needed.<br>
@@ -43,5 +44,6 @@ This project aims to implement self localisation using a grid cell model as pres
 ## Current Tasks (no particular order):
 1. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
 3. Refine the position prediction algorithm by reducing time spent calculating the covariance matrix.
-1. Add altitude control to the random walk and GridNetwork.
+1. Tweak altitude control by finding optimal pid gains.
+1. Review random walk update function.
 1. Add the 3rd dimension to the grid network and prediction code.
