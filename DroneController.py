@@ -50,8 +50,15 @@ class DroneController:
         self.past_pos = np.array([0, 0, 0])
         self.past_time = 0.0
         self.hover_altitude = hover_altitude
+        self.initial_pid = True
 
         print('DroneController initialized')
+
+    def change_gains_pid(self, kp = 1.0, kd = 1.4, ki = 0.0):
+        self.pid_controller.gains["kp_z"] = kp
+        self.pid_controller.gains["kd_z"] = kd
+        self.pid_controller.gains["ki_z"] = ki
+        self.initial_pid = False
 
     def update(self, direction): # Override for 3d movement
         """
@@ -71,10 +78,10 @@ class DroneController:
         altitude = gps_values[2]
 
         # check for 2d or 3d input
-        if len(direction) == 3 and direction[2]!=0:
-            print(f'alt change = {direction[2]}')
+        if len(direction) == 3 and direction[2]!=0:            
             horizontal_direction = direction[:2]
             self.hover_altitude = direction[2] + altitude
+            #print(f'alt change to = {self.hover_altitude}')
         else:
             horizontal_direction = direction
 
@@ -143,6 +150,32 @@ class PIDVelocityController:
         self.altitude_integrator = 0.0
         self.prev_yaw_error = 0.0
         self.yaw_integrator = 0.0
+        self.hover_speed = 48 #48
+
+        self.prev_altitude = None
+        self.prev_vz_error = 0.0
+        self.altitude_integrator_vz = 0.0
+
+        # PID gains
+        self.gains = {
+            "kp_att_y": 1.0,
+            "kd_att_y": 0.5,
+            "kp_att_rp": 0.5,
+            "kd_att_rp": 0.1,
+            "kp_vel_xy": 2.0,
+            "kd_vel_xy": 0.5,
+            "kp_z": 1.0,
+            "ki_z": 0.01,
+            "kd_z": 1.4,
+            "k_alt": 1.0,    # converts altitude error to desired vertical velocity
+            "kp_vz": 1.0,
+            "kd_vz": 0.5,
+            "ki_vz": 0.01,
+            "Kp_yaw" : 2.0,
+            "Ki_yaw" : 0.0,
+            "Kd_yaw" : 0.5,
+        }
+        self.clip_bound = 15
 
         print('PIDVelocityController initialized')
 
@@ -168,22 +201,7 @@ class PIDVelocityController:
         Returns:
             list: Motor speeds [m1, m2, m3, m4].
         """
-        # PID gains
-        gains = {
-            "kp_att_y": 1.0,
-            "kd_att_y": 0.5,
-            "kp_att_rp": 0.5,
-            "kd_att_rp": 0.1,
-            "kp_vel_xy": 2.0,
-            "kd_vel_xy": 0.5,
-            "kp_z": 1.0,
-            "ki_z": 0.01,
-            "kd_z": 1.4,
-            "Kp_yaw" : 2.0,
-            "Ki_yaw" : 0.0,
-            "Kd_yaw" : 0.5,
-        }
-        clip_bound = 15
+        
         
         # Velocity PID for forward (x) and lateral (y)
         vx_error = desired_vx - actual_vx
@@ -195,11 +213,11 @@ class PIDVelocityController:
         yaw_deriv = (yaw_error - self.prev_yaw_error) / dt
         self.yaw_integrator += yaw_error * dt
         
-        desired_pitch = gains["kp_vel_xy"] * np.clip(vx_error, -clip_bound, clip_bound) + gains["kd_vel_xy"] * vx_deriv
-        desired_roll = -gains["kp_vel_xy"] * np.clip(vy_error, -clip_bound, clip_bound) - gains["kd_vel_xy"] * vy_deriv
-        yaw_rate_command = (gains["Kp_yaw"] * yaw_error
-                        + gains["Ki_yaw"] * self.yaw_integrator
-                        + gains["Kd_yaw"] * yaw_deriv)
+        desired_pitch = self.gains["kp_vel_xy"] * np.clip(vx_error, -self.clip_bound, self.clip_bound) + self.gains["kd_vel_xy"] * vx_deriv
+        desired_roll = -self.gains["kp_vel_xy"] * np.clip(vy_error, -self.clip_bound, self.clip_bound) - self.gains["kd_vel_xy"] * vy_deriv
+        yaw_rate_command = (self.gains["Kp_yaw"] * yaw_error
+                        + self.gains["Ki_yaw"] * self.yaw_integrator
+                        + self.gains["Kd_yaw"] * yaw_deriv)
     
         self.prev_yaw_error = yaw_error    
         self.prev_vx_error = vx_error
@@ -209,12 +227,40 @@ class PIDVelocityController:
         alt_error = desired_altitude - actual_altitude
         alt_deriv = (alt_error - self.prev_alt_error) / dt
         self.altitude_integrator += alt_error * dt
-        alt_command = (gains["kp_z"] * alt_error +
-                       gains["kd_z"] * alt_deriv +
-                       gains["ki_z"] * self.altitude_integrator) 
-        alt_command = 48 + (alt_command * 10)  # 48 is the bare minimum velocity for lift off | times a ratio
+        alt_command = (self.gains["kp_z"] * alt_error +
+                       self.gains["kd_z"] * alt_deriv +
+                       self.gains["ki_z"] * self.altitude_integrator) 
+        alt_command = self.hover_speed + (alt_command * 10)  # 48 is the bare minimum velocity for lift off | times a scaled ratio
         self.prev_alt_error = alt_error
 
+        # ----- Velocity-Based Altitude Control -----
+        # Compute vertical (z) velocity
+        if self.prev_altitude is None:
+            # On first call, assume no vertical velocity.
+            vertical_velocity = 0.0
+        else:
+            vertical_velocity = (actual_altitude - self.prev_altitude) / dt
+        self.prev_altitude = actual_altitude
+
+        # Compute altitude error and derive a desired vertical velocity
+        alt_error = desired_altitude - actual_altitude
+        desired_vz = self.gains["k_alt"] * alt_error
+
+        # Compute the velocity error in the vertical axis
+        vz_error = desired_vz - vertical_velocity
+        vz_deriv = (vz_error - self.prev_vz_error) / dt
+        self.altitude_integrator_vz += vz_error * dt
+        self.prev_vz_error = vz_error
+
+        # Compute the altitude command adjustment based on vertical velocity error
+        vz_command = (self.gains["kp_vz"] * vz_error +
+                      self.gains["kd_vz"] * vz_deriv +
+                      self.gains["ki_vz"] * self.altitude_integrator_vz)
+        
+        # Combine with the known hover throttle.
+        # 55.35 is the motor speed for stable hovering; we add a scaled correction.
+        alt_command = 55.35 + 2*(vz_command)
+        #print(f'alt com={alt_command}, vz com = {vz_command}')
         #print(f'alt={actual_altitude}, alt_d={desired_altitude}, alt_e={alt_error}, alt_c={alt_command}')
         
         # Attitude PID for pitch, roll, and yaw rate
@@ -224,9 +270,9 @@ class PIDVelocityController:
         roll_deriv = (roll_error - self.prev_roll_error) / dt
         yaw_rate_error = yaw_rate_command - actual_yaw_rate
         
-        roll_command = gains["kp_att_rp"] * np.clip(roll_error, -clip_bound, clip_bound) + gains["kd_att_rp"] * roll_deriv
-        pitch_command = -gains["kp_att_rp"] * np.clip(pitch_error, -clip_bound, clip_bound) - gains["kd_att_rp"] * pitch_deriv
-        yaw_command = gains["kp_att_y"] * np.clip(yaw_rate_error, -clip_bound, clip_bound)
+        roll_command = self.gains["kp_att_rp"] * np.clip(roll_error, -self.clip_bound, self.clip_bound) + self.gains["kd_att_rp"] * roll_deriv
+        pitch_command = -self.gains["kp_att_rp"] * np.clip(pitch_error, -self.clip_bound, self.clip_bound) - self.gains["kd_att_rp"] * pitch_deriv
+        yaw_command = self.gains["kp_att_y"] * np.clip(yaw_rate_error, -self.clip_bound, self.clip_bound)
         
         self.prev_pitch_error = pitch_error
         self.prev_roll_error = roll_error

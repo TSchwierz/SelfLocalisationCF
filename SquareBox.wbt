@@ -14,9 +14,10 @@ WorldInfo {
   FPS 30
 }
 Viewpoint {
-  orientation -0.4034712385228805 0.35060097172904786 0.8451567418576628 1.8747041519256007
-  position 0.23927732040564292 -1.723866881415304 2.1572314137028923
+  orientation 0.5212220391139816 0.5272992531394712 -0.671031358120035 1.9488002801661488
+  position -0.09579133667489605 2.3214216037603186 5.7880360896939695
   follow "Crazyflie"
+  followType "None"
 }
 TexturedBackground {
 }
@@ -24,21 +25,16 @@ TexturedBackgroundLight {
   castShadows FALSE
 }
 Floor {
+  translation 0 0 -2.5
   size 6 6
   appearance Parquetry {
   }
 }
 DEF Crazyflie Crazyflie {
+  translation 0 0 -2.4
   controller "<extern>"
-  supervisor TRUE
-  extensionSlot [
-    Camera {
-      name "camera(1)"
-    }
-  ]
 }
 DEF Wall Solid {
-  translation 0 0 2
   children [
     DEF Walls Group {
       children [
@@ -49,7 +45,7 @@ DEF Wall Solid {
               appearance RedBricks {
               }
               geometry Box {
-                size 0.1 6 4
+                size 0.1 6 5
               }
             }
           ]
@@ -61,7 +57,7 @@ DEF Wall Solid {
               appearance Plaster {
               }
               geometry Box {
-                size 6 0.1 4
+                size 6 0.1 5
               }
             }
           ]
@@ -73,7 +69,7 @@ DEF Wall Solid {
               appearance MarbleTiles {
               }
               geometry Box {
-                size 6 0.1 4
+                size 6 0.1 5
               }
             }
           ]
@@ -85,7 +81,7 @@ DEF Wall Solid {
               appearance RoughOak {
               }
               geometry Box {
-                size 0.1 6 4
+                size 0.1 6 5
               }
             }
           ]

@@ -124,52 +124,52 @@ class RLSRegressor:
         self.num_outputs = num_outputs
         self.lambda_ = lambda_
         # Weight matrix (mapping from features to outputs), shape: (num_features, num_outputs)
-        self.W = np.zeros((num_features, num_outputs))
+        self.A = np.zeros((num_features, num_outputs))
         # Inverse covariance matrix, initialized as a large multiple of the identity matrix.
         self.P = np.eye(num_features) * delta
         self.eps = 1e-5 # small constant to mitigate blow up in covariance matrix
 
-    def update(self, phi, d):
+    def update(self, y, x):
         """
         Update the regression weights using a new data pair.
         
         Parameters:
-        phi (np.ndarray): Input feature vector (neural activity) of shape (num_features,).
-        d (np.ndarray): Target output (e.g., 2D position) of shape (num_outputs,).
+        y (np.ndarray): Input feature vector (neural activity) of shape (num_features,).
+        x (np.ndarray): Target output (e.g., 2D position) of shape (num_outputs,).
         
         Returns:
         np.ndarray: Updated weight matrix.
         """
         # Ensure column vector format for phi and d
-        phi = phi.reshape(-1, 1)  # shape: (num_features, 1)
-        d = d.reshape(-1, 1)      # shape: (num_outputs, 1)
+        y = y.reshape(-1, 1)  # shape: (num_features, 1)
+        x = x.reshape(-1, 1)      # shape: (num_outputs, 1)
 
         # Compute the denominator (a scalar)
-        denom = self.lambda_ + np.dot(phi.T, np.dot(self.P, phi)) + self.eps
+        denom = self.lambda_ + np.dot(y.T, np.dot(self.P, y)) + self.eps
 
         # Compute the gain vector (shape: num_features x 1)
-        K = np.dot(self.P, phi) / denom
+        K = np.dot(self.P, y) / denom
 
         # Compute the prediction error (innovation) (shape: num_outputs x 1)
-        error = d - np.dot(self.W.T, phi)
+        error = x - np.dot(self.A.T, y)
 
         # Update the weight matrix; K (num_features x 1) multiplied by error.T (1 x num_outputs)
-        self.W = self.W + np.dot(K, error.T)
+        self.A = self.A + np.dot(K, error.T)
 
         # Update the inverse covariance matrix
-        self.P = (self.P - np.dot(K, np.dot(phi.T, self.P))) / self.lambda_
-        return self.W
+        self.P = (self.P - np.dot(K, np.dot(y.T, self.P))) / self.lambda_
+        return self.A
 
-    def predict(self, phi):
+    def predict(self, y):
         """
         Predict the output given a new feature vector.
         
         Parameters:
-        phi (np.ndarray): Input feature vector of shape (num_features,).
+        y (np.ndarray): Input feature vector of shape (num_features,).
         
         Returns:
         np.ndarray: Predicted output (e.g., 2D position).
         """
-        phi = phi.reshape(-1, 1)
-        d_pred = np.dot(self.W.T, phi)
-        return d_pred.flatten()
+        y = y.reshape(-1, 1)
+        x_est = np.dot(self.A.T, y)
+        return x_est.flatten()

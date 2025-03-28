@@ -23,16 +23,16 @@ from datetime import datetime
 import pickle
 
 # ---------------- Simulation Parameters ----------------
-FLYING_ATTITUDE = 1              # Base altitude (z-value) for flying
+FLYING_ATTITUDE = 0              # Base altitude (z-value) for flying
 INITIAL_PAUSE = 6                # Time (in seconds) for the drone to lift off and stabilize
 COMMAND_INTERVAL = 1           # Interval (in seconds) between new movement commands
 COMMAND_TOLERANCE = 0.032        # Tolerance (in seconds) for command timing
-MOVEMENT_MAGNITUDE = 1.0         # Magnitude of the movement vector in the xy-plane
-DRIFT_COEFFICIENT = 0.03         # Lowered drift coefficient to reduce abrupt corrections
+MOVEMENT_MAGNITUDE = 0.25         # Magnitude of the movement vector in the xy-plane
+NEURAL_NOISE_VAR = 0.01 * 5#%    # The value of the standart variation for noise on network activity (normalised to 0.0-1.0)
 ARENA_BOUNDARIES = np.array([[-2.5, 2.5],  # x boundaries
                              [-2.5, 2.5],  # y boundaries
-                             [1, 3]])      # z boundaries
-NEURAL_NOISE_VAR = 0.01 * 5#%    # The value of the standart variation for noise on network activity (normalised to 0.0-1.0)
+                             [-2.5, 2.5]]) # z boundaries
+
 
 # ---------------- Helper Functions ----------------
 def plot_3d_trajectory(pos, ID='null'):
@@ -43,11 +43,11 @@ def plot_3d_trajectory(pos, ID='null'):
     plt.plot(time, x[start:stop], 'b:', label='x')
     plt.plot(time, y[start:stop], 'r:', label='y')
     plt.plot(time, z[start:stop], 'g:', label='z')
-    plt.axhline(ARENA_BOUNDARIES[0,0], c='y', label = 'x-y limit')
-    plt.axhline(ARENA_BOUNDARIES[0,1], c='y')
-    plt.axhline(ARENA_BOUNDARIES[2,0], c='b', label = 'alt limit')
-    plt.axhline(ARENA_BOUNDARIES[2,1], c='b')
-    plt.ylim(-3, 4)
+    plt.axhline(ARENA_BOUNDARIES[0,0], c='c', label = 'x-y limit')
+    plt.axhline(ARENA_BOUNDARIES[0,1], c='c')
+    plt.axhline(ARENA_BOUNDARIES[2,0], c='g', label = 'alt limit')
+    plt.axhline(ARENA_BOUNDARIES[2,1], c='g')
+    plt.ylim(-3, 3.5)
     plt.grid()
     plt.legend()
 
@@ -134,7 +134,7 @@ def load_object(filename):
     except Exception as ex:
         print("Error during unpickling object (Possibly unsupported):", ex)
 
-def compute_drift_vector(position, drift_coefficient=DRIFT_COEFFICIENT, arena_radius=5):
+def compute_drift_vector(position, drift_coefficient=0.1, arena_radius=5):
     """
     Compute a drift vector that nudges the drone toward the arena center.
 
@@ -215,7 +215,7 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.1):
     new_angle = (new_angle + np.pi) % (2 * np.pi) - np.pi
     return np.array([np.cos(new_angle), np.sin(new_angle)]) * magnitude
 
-def update_direction3D(current_direction, magnitude, dt, angular_std=0.1):
+def update_direction3D(current_direction, magnitude, dt, angular_std=0.25):
     """
     Update the drone's movement direction in 3D using a small random rotation.
     
@@ -261,7 +261,7 @@ def update_direction3D(current_direction, magnitude, dt, angular_std=0.1):
     # Use Rodrigues rotation formula to compute the rotated vector. simplifies to:
     #   v_rot = v*cos(theta) + (a x v)*sin(theta)
     new_direction = np.cos(d_angle) * unit_current + np.sin(d_angle) * np.cross(axis, unit_current)
-    
+    #print(f'{new_direction}, size={np.linalg.norm(new_direction)}')
     return new_direction * magnitude
 
 # ---------------- Main Simulation Loop ----------------
@@ -306,12 +306,15 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
 
         # After Initial start-up
         else:
+            if(controller.initial_pid):
+                controller.change_gains_pid(kp=2.0, kd=3.0, ki=0.0)
+
             # Default movement: no change unless a new command is issued at the interval
             movement_direction = np.array([0, 0])
         
             # Issue a new movement command at defined intervals (after the initial pause)
             if (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
-                movement_direction = update_direction3D(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.33) # Update direction using a small-angle random walk     
+                movement_direction = update_direction3D(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.5) # Update direction using a small-angle random walk     
                 movement_direction = adjust_for_boundaries(ARENA_BOUNDARIES, current_position, movement_direction) # Adjust the movement to respect arena boundaries
                 previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
                 #print(movement_direction)
@@ -323,7 +326,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
 
             # network online prediction
             if (predict_during_simulation):
-                noisy_activity = activity + np.random.normal(0, NEURAL_NOISE_VAR, np.shape(activity))
+                noisy_activity = np.clip(activity + np.random.normal(0, NEURAL_NOISE_VAR, np.shape(activity)), 0.0, 1.0)
                 prediction_pos = rls.predict(noisy_activity)
                 predicted_pos_log.append(prediction_pos)
                 prediction_mse_log.append((prediction_pos-current_position)**2)
@@ -362,7 +365,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     if (predict_during_simulation):
         mse_mean = np.mean(prediction_mse_log)
         PredictionModel.plot_prediction_path(np.array(position_log), np.array(predicted_pos_log), mse_mean, ID=ID)
-        mse_shuffeled = 'Nan'
+        mse_shuffeled = 'NaN'
         r2_mean = 'NaN'
         r2_shuffeled = 'NaN'
     else:
@@ -394,6 +397,6 @@ if __name__ == '__main__':
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=15.0, predict_during_simulation=False)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=40.0, predict_during_simulation=False)
 
     #plot_fitting_results(nr, spacing, mse_means)

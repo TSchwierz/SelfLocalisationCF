@@ -8,10 +8,12 @@ This project aims to implement self localisation using a grid cell model as pres
 	- This code implements the grid cell model of the guanella paper (doi:10.1142/S0129065707001093). Thanks to Raimon Bullich Villareal for providing the bulk of the code.
 - DroneController.py
 	- Implements a controller unit that is used to control the drone in webbots. Makes use of a PID controller. Sourced and modified sample controller code.
+- PredictionModel.py
+	- The algorithm used for online prediction is defined here.
 - Sample
 	- Within this folder are the sample scripts of webots for the wall_following drone controller._ 
 - Results
-	- In this folder are the most recent plots and results sorted by their ID.
+	- In this folder are the most recent plots and results organised by their ID.
 - Deprecated
 	- This folder features old version of scripts which are not used any more.
 - SquareBox.wbt
@@ -19,7 +21,15 @@ This project aims to implement self localisation using a grid cell model as pres
 - runSLC.bat
 	- A batch file that can be run in the cmd to start the controller in webots
 
+
+## Current Tasks (no particular order):
+1. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
+3. Refine the position prediction algorithm by reducing time spent calculating the covariance matrix.
+1. Add the 3rd dimension to the grid network and prediction code.
+
+
 ## Latest Change:
+**28.03.:** Improved the three-dimensional random walk by using height velocity control in the PID. Using small movement steps, it mimics a typical theoretical random walk path.
 **26.03.:** Added Height control to the control loop. The drone now moves in all 3 dimensions. The movement seems less random at this moment and more like straight trajectories bouncing of the boundaries. <br>
 **18.03.:** Using RLS alorithm with noisy neural input to do positional predictions online during runtime. The majority of execution time is spent updating the covariance matrix.<br>
 **18.03.:** Made tweaks to the DroneController code. Smooth random movement is now achieved in place of the rigid, grid-like pattern!<br>
@@ -41,9 +51,3 @@ This project aims to implement self localisation using a grid cell model as pres
 **15.02.:** Corrected the yaw behaviour. Previously the yaw of the drone would be oscillating between two values. It now correctly stays in place until a new rotation command is given. The drone now stably moves for large simulated times (>1h), but seems to have a preference of staying within a certain quadrant.
 
 
-## Current Tasks (no particular order):
-1. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
-3. Refine the position prediction algorithm by reducing time spent calculating the covariance matrix.
-1. Tweak altitude control by finding optimal pid gains.
-1. Review random walk update function.
-1. Add the 3rd dimension to the grid network and prediction code.
