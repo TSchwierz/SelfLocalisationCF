@@ -23,12 +23,14 @@ This project aims to implement self localisation using a grid cell model as pres
 
 
 ## Current Tasks (no particular order):
+1. The prediction has a systematic error in z. Investigate why and fix
+1. The internal position integrator is completly static through the simulation. 
 1. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
 3. Refine the position prediction algorithm by reducing time spent calculating the covariance matrix.
-1. Add the 3rd dimension to the grid network and prediction code.
 
 
 ## Latest Change:
+**08.04.:** Implemented 1.) The network is using an internal positional integrator (using the velocity) instead of learning from the actual position.  2.) 3d online prediction is made. 3.) Data of the simulation is saved as a file and plotting for results can be done through a seperate notebook.<br>
 **08.04.:** (Commited 09.04.) Added mixed modular coding to the grid network to achieve a 3 dimensional grid network.<br>
 **28.03.:** Improved the three-dimensional random walk by using height velocity control in the PID. Using small movement steps, it mimics a typical theoretical random walk path. <br>
 **26.03.:** Added Height control to the control loop. The drone now moves in all 3 dimensions. The movement seems less random at this moment and more like straight trajectories bouncing of the boundaries. <br>

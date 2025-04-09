@@ -381,6 +381,6 @@ if __name__ == '__main__':
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=30.0, predict_during_simulation=True)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=6.0, predict_during_simulation=True)
 
     #plot_fitting_results(nr, spacing, mse_means)
