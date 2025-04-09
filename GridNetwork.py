@@ -17,7 +17,7 @@ class MixedModularCoder:
         ])
         # booplean mask for each m stating the dimension it projects
         self.projected_dim = np.any(self.A != 0, axis=1)
-        self.pos_integrator = np.array([0.0,0.0,0.0])
+        self.pos_integrator = np.array([0.0, 0.0, 0.0])
 
         nx = 10
         ny = 9

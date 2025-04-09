@@ -11,6 +11,7 @@ predicts the drone's path using a linear model.
 """
 
 from asyncio.windows_events import NULL
+from multiprocessing.heap import Arena
 import os
 from PIL.Image import ID
 import numpy as np
@@ -37,6 +38,31 @@ ARENA_BOUNDARIES = np.array([[-2.5, 2.5],  # x boundaries
 
 
 # ---------------- Helper Functions ----------------
+def save_object(obj, fname='data.pickle'):
+    '''
+    saves a python object to a file using the built-in pickle library
+    
+    :param obj: The object to be saved
+    :param fname: Name of the file in which to save the obj. Default is data.pickle
+    '''
+    try:
+        with open(fname, "wb") as f:
+            pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception as ex:
+        print("Error during pickling object (Possibly unsupported):", ex)
+
+def load_object(filename):
+    '''
+    load an object from a file using the built-in pickle library
+
+    :param filename: Name of the file from which to load data
+    '''
+    try:
+        with open(filename, "rb") as f:
+            return pickle.load(f)
+    except Exception as ex:
+        print("Error during unpickling object (Possibly unsupported):", ex)
+
 def plot_modular_activity(mmc, pos_log, ac_log, ID):
     pos2D = mmc.project_positions(pos_log)
     activity = np.array(ac_log)
@@ -201,7 +227,7 @@ def update_direction3D(current_direction, magnitude, dt, angular_std=0.25):
 
 # ---------------- Main Simulation Loop ----------------
 def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False):
-    os.makedirs(f"Results\\ID{ID}", exist_ok=True)
+    os.makedirs(f"Results\\ID {ID}", exist_ok=True)
     # Initialize simulation components
     robot = robot_
     timestep_ms = int(robot.getBasicTimeStep())
@@ -212,7 +238,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     #grid_network.set_gains(gains)
     #grid_network = load_object('data.pickle')
     mmc = MixedModularCoder(gains=gains)
-    rls = PredictionModel.RLSRegressor(mmc.ac_size, 3, lambda_=0.999, delta=1e2)
+    rls = PredictionModel.RLSRegressor(mmc.ac_size, num_outputs=3, lambda_=0.999, delta=1e2)
     
     # Initialize state variables
     previous_direction = np.array([0, 0, 0])  # Initial xyz movement direction
@@ -221,11 +247,11 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     elapsed_time = 0
     network_states = []
     position_log = []
-    current_position = np.array(robot_.getDevice("gps").getValues())
-    if(predict_during_simulation):
-        predicted_pos_log = []
-        prediction_mse_log = []
-        integrated_pos_log = []
+    position_real = np.array(robot_.getDevice("gps").getValues())
+    # For online prediction:
+    predicted_pos_log = []
+    prediction_mse_log = []
+    integrated_pos_log = []
     
     MAX_SIMULATION_TIME = 60 * simulated_minutes # 1min in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
@@ -240,25 +266,25 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         
         # Initial start-up phase (Drone needs to get to stable hover altitude)
         if (elapsed_time < INITIAL_PAUSE):
-            current_position, velocity = controller.update([0,0]) # desired initial position
+            position_real, velocity = controller.update([0,0]) # desired initial position
 
         # After Initial start-up
         else:
             if(controller.initial_pid):
                 controller.change_gains_pid(kp=2.0, kd=3.0, ki=0.0)
 
-            # Default movement: no change unless a new command is issued at the interval
+            # Default movement: no change unless a new command is issued at the interval #2d for proper function
             movement_direction = np.array([0, 0])
         
             # Issue a new movement command at defined intervals (after the initial pause)
             if (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
                 movement_direction = update_direction3D(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.5) # Update direction using a small-angle random walk     
-                movement_direction = adjust_for_boundaries(ARENA_BOUNDARIES, current_position, movement_direction) # Adjust the movement to respect arena boundaries
+                movement_direction = adjust_for_boundaries(ARENA_BOUNDARIES, position_real, movement_direction) # Adjust the movement to respect arena boundaries
                 previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
                 #print(movement_direction)
         
             # Controller + Network Update
-            current_position, velocity = controller.update(movement_direction)
+            position_real, velocity = controller.update(movement_direction)
             #grid_network.update_network(velocity[:2]*dt)
             #activity = grid_network.network_activity.copy()
             activity, pos_internal = mmc.update(velocity*dt)
@@ -269,19 +295,19 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
                 noisy_activity = np.clip(activity + np.random.normal(0, NEURAL_NOISE_VAR, np.shape(activity)), 0.0, 1.0)
                 prediction_pos = rls.predict(noisy_activity)
                 predicted_pos_log.append(prediction_pos)
-                prediction_mse_log.append((prediction_pos-current_position)**2)
+                prediction_mse_log.append((prediction_pos-position_real)**2)
                 integrated_pos_log.append(pos_internal)
 
                 # learn using noisy position (internal integrator + global gps)
-                noisy_position = (0.1*current_position + 0.9*pos_internal)/2            
+                noisy_position = (0.05*position_real + 0.95*pos_internal)            
                 rls.update(noisy_activity, noisy_position) # update using noise
 
             # saving values
-            position_log.append(current_position)
+            position_log.append(position_real)
             network_states.append(activity)
         
         # fail save, adjust for actual arena radius size
-        if (np.linalg.norm(current_position) > 3*(2.5**2)):
+        if (np.linalg.norm(position_real) > 3*(2.5**2)):
             break
     
     # ---------------- End of Simulation ----------------
@@ -294,37 +320,54 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     print(f' - effective Arena size: {arena_size}')
 
     # Visualize the network activity and complete path coverage
-    print('Generating Images...')
+    #print('Generating Images...')
     # 3D path
-    plot_3d_trajectory(np.array(position_log), ID)
-    plot_modular_activity(mmc, position_log, network_states, ID)
+    #plot_3d_trajectory(np.array(position_log), ID)
+    #plot_modular_activity(mmc, position_log, network_states, ID)
  
     #grid_network.plot_frame_figure(positions_array=position_log, network_activity=network_states, num_bins=60, ID=ID)
     # Generate activity plots for each neuron
     #grid_network.plot_activity_neurons(np.array(position_log), num_bins=60, neuron_range=range(grid_network.N), network_activity=np.array(network_states), ID=ID)
     
-    print('Saved activity plot\nCalculating prediction...')
+    print('Calculating prediction...')
     if (predict_during_simulation):
         mse_mean = np.mean(prediction_mse_log)
-        PredictionModel.plot_prediction_path(np.array(position_log), np.array(predicted_pos_log), mse_mean, ID=ID)
+        #PredictionModel.plot_prediction_path(np.array(position_log), np.array(predicted_pos_log), mse_mean, ID=ID)
         mse_shuffeled = 'NaN'
         r2_mean = 'NaN'
         r2_shuffeled = 'NaN'
     else:
          # Predict the position using a linear model and plot the results
         X, y, y_pred, mse_mean, mse_shuffeled, r2_mean, r2_shuffeled = fit_linear_model(network_states, position_log, return_shuffled=True)
-        plot_prediction_path(y, y_pred, mse_mean, ID=ID)
-    print('Saved prediction plot')
+        #plot_prediction_path(y, y_pred, mse_mean, ID=ID)
+    print('Predicted location data')
 
     # Save the results of the network
-    ''' Not necessarly useful anymore
-    save_object(grid_network, f'Results\\ID{ID}\\network{ID}.pickle')
-    with open(f'Results\\SummaryResults.txt', 'a') as file:
-        file.write(f'ID:{ID}, gains:{gains}\nmse_mean:{mse_mean}\tmse_shuffeled:{mse_shuffeled}\nr2_mean:{r2_mean}\tr2_shuffeled:{r2_shuffeled}\n --- \n')
-        file.close()
-    print(f'Saved Network.')
-    '''
-    print(f'Finished execution of ID{ID}')
+    data = {
+        'online' : predict_during_simulation,
+        'name' : ID,
+        'sim time' : simulated_minutes,
+        'dt ms' : timestep_ms,
+        'radius' : arena_size,
+        'boundaries' : ARENA_BOUNDARIES,
+        'position' : position_log,
+        'position internal' : integrated_pos_log,
+        'position prediction' : predicted_pos_log,
+        'activity' : network_states,
+        'predicted mse' : prediction_mse_log,
+        'mse' : mse_mean,
+        'mse_shuffeled' : mse_shuffeled,
+        'r2_mean' : r2_mean,
+        'r2_shuffeled' : r2_shuffeled,
+        'gains' : gains,
+        'modular projections' : mmc.projected_dim,
+        'module operators' : mmc.A
+        }
+    filename = f'Data {ID}.pickle'
+    save_object(data, f'Results\\ID {ID}\\{filename}')
+    print(f'Saved Data as {filename}')
+    
+    print(f'Finished execution of ID {ID}')
 
 if __name__ == '__main__':
     robot = Robot()
@@ -334,10 +377,10 @@ if __name__ == '__main__':
 
     #INITIAL = [0, 0, 1]
     gains = [0.2, 0.4, 0.6, 0.8, 1.0]
-    id_ = 'Naive_3D'
+    id_ = 'MMC Online'
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=30.0, predict_during_simulation=False)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=30.0, predict_during_simulation=True)
 
     #plot_fitting_results(nr, spacing, mse_means)
