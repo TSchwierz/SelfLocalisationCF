@@ -29,7 +29,7 @@ This project aims to implement self localisation using a grid cell model as pres
 
 
 ## Latest Change:
-**28.03.:** Improved the three-dimensional random walk by using height velocity control in the PID. Using small movement steps, it mimics a typical theoretical random walk path.
+**28.03.:** Improved the three-dimensional random walk by using height velocity control in the PID. Using small movement steps, it mimics a typical theoretical random walk path. <br>
 **26.03.:** Added Height control to the control loop. The drone now moves in all 3 dimensions. The movement seems less random at this moment and more like straight trajectories bouncing of the boundaries. <br>
 **18.03.:** Using RLS alorithm with noisy neural input to do positional predictions online during runtime. The majority of execution time is spent updating the covariance matrix.<br>
 **18.03.:** Made tweaks to the DroneController code. Smooth random movement is now achieved in place of the rigid, grid-like pattern!<br>

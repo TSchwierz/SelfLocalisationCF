@@ -12,15 +12,17 @@ predicts the drone's path using a linear model.
 
 from asyncio.windows_events import NULL
 import os
+from PIL.Image import ID
 import numpy as np
 import matplotlib.pyplot as plt
 from controller import Robot
-from controller import Supervisor
+#from controller import Supervisor
 from DroneController import DroneController
-from GridNetwork import GridNetwork
+from GridNetwork import GridNetwork, MixedModularCoder
 import PredictionModel
 from datetime import datetime
 import pickle
+from PredictionModel import fit_linear_model, plot_prediction_path
 
 # ---------------- Simulation Parameters ----------------
 FLYING_ATTITUDE = 0              # Base altitude (z-value) for flying
@@ -35,6 +37,12 @@ ARENA_BOUNDARIES = np.array([[-2.5, 2.5],  # x boundaries
 
 
 # ---------------- Helper Functions ----------------
+def plot_modular_activity(mmc, pos_log, ac_log, ID):
+    pos2D = mmc.project_positions(pos_log)
+    activity = np.array(ac_log)
+    for i, m in enumerate(mmc.Module):
+        m.plot_frame_figure(pos2D[i], 50, activity[:,i], ID=ID, subID=f'mod{i}')
+
 def plot_3d_trajectory(pos, ID='null'):
     x, y, z = pos[:,0], pos[:,1], pos[:,2]
 
@@ -64,7 +72,6 @@ def plot_3d_trajectory(pos, ID='null'):
     plt.savefig(f'Results\\ID{ID}\\3d_trajectory_spaceplot.png', format='png')
     plt.close()
 
-
 def plot_fitting_results(n, spacing, score):
     '''
     Plot the scoring of gain configurations as a heatmap based on the number of gains and the spacing between them
@@ -91,67 +98,6 @@ def plot_fitting_results(n, spacing, score):
     plt.savefig(f'Results\\best_gain_results.png', format='png') # save in relative folder Results in Source/Repos/SelfLocalisationCF
     plt.close()
 
-def generate_gain_lists(Lsize, Lspacing, start=0.1):
-    '''
-    Generates a list of gains according to the desired sizes and spacings
-
-    :param Lsize: list of ints containing the amount of gains 
-    :param Lspacing: list of floats containing the constant increase between the gains
-
-    Return:
-    - an inhomogenous list of shape (len(Lsize)*len(Lspacing), Lsize) containing lists of gains
-    '''
-    gain_list = []
-
-    for n in Lsize:
-        for s in Lspacing:
-            gains = [round(start + i * s, 1) for i in range(n)]
-            gain_list.append(gains)
-    return gain_list
-
-def save_object(obj, fname='data.pickle'):
-    '''
-    saves a python object to a file using the built-in pickle library
-    
-    :param obj: The object to be saved
-    :param fname: Name of the file in which to save the obj. Default is data.pickle
-    '''
-    try:
-        with open(fname, "wb") as f:
-            pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception as ex:
-        print("Error during pickling object (Possibly unsupported):", ex)
-
-def load_object(filename):
-    '''
-    load an object from a file using the built-in pickle library
-
-    :param filename: Name of the file from which to load data
-    '''
-    try:
-        with open(filename, "rb") as f:
-            return pickle.load(f)
-    except Exception as ex:
-        print("Error during unpickling object (Possibly unsupported):", ex)
-
-def compute_drift_vector(position, drift_coefficient=0.1, arena_radius=5):
-    """
-    Compute a drift vector that nudges the drone toward the arena center.
-
-    :param position: Current 3D position [x, y, z] of the drone.
-    :param drift_coefficient: Scalar controlling the strength of the drift.
-    :param arena_radius: Effective arena radius used for scaling.
-    :return: A 2D drift vector for the xy-plane.
-    """
-    current_xy = np.array(position[:2])
-    distance = np.linalg.norm(current_xy)
-    if distance > 0:
-        drift_direction = -current_xy / distance
-    else:
-        drift_direction = np.zeros(2)
-    # Scale drift proportional to how far out the drone is (relative to arena_radius)
-    return drift_direction * drift_coefficient * (distance / arena_radius)
-
 def adjust_for_boundaries(boundaries, position, movement_vector):
     """
     Adjust the movement vector if the new position would exceed the arena boundaries.
@@ -176,17 +122,6 @@ def adjust_for_boundaries(boundaries, position, movement_vector):
             # Move only as much as needed to hit the upper bound
             adjusted_vector[i] = upper_bounds[i] - position[i]
     return adjusted_vector
-
-def get_new_altitude(current_altitude, sigma=0.25):
-    """
-    Generate a new altitude based on a normal distribution centered around current_altitude.
-
-    :param current_altitude: [Float] The current height at which the drone is flying.
-    :param sigma: [Float, DEFAULT=0.25] The standart variance on the new height
-    
-    :return: A new altitude value.
-    """
-    return np.random.normal(current_altitude, sigma)
 
 def update_direction(current_direction, magnitude, dt, angular_std=0.1):
     """
@@ -272,10 +207,12 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     timestep_ms = int(robot.getBasicTimeStep())
     dt = timestep_ms / 1000.0  # Convert timestep to seconds
     controller = DroneController(robot, FLYING_ATTITUDE)
-    grid_network = GridNetwork(10, 9) # make a network with Nx=10 x Ny=9 neurons 
-    grid_network.set_gains(gains)
+    
+    #grid_network = GridNetwork(10, 9) # make a network with Nx=10 x Ny=9 neurons 
+    #grid_network.set_gains(gains)
     #grid_network = load_object('data.pickle')
-    rls = PredictionModel.makeKFandRLS(grid_network.n, 2)
+    mmc = MixedModularCoder(gains=gains)
+    rls = PredictionModel.RLSRegressor(mmc.ac_size, 3, lambda_=0.999, delta=1e2)
     
     # Initialize state variables
     previous_direction = np.array([0, 0, 0])  # Initial xyz movement direction
@@ -288,6 +225,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     if(predict_during_simulation):
         predicted_pos_log = []
         prediction_mse_log = []
+        integrated_pos_log = []
     
     MAX_SIMULATION_TIME = 60 * simulated_minutes # 1min in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
@@ -321,8 +259,10 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         
             # Controller + Network Update
             current_position, velocity = controller.update(movement_direction)
-            grid_network.update_network(velocity[:2]*dt)
-            activity = grid_network.network_activity.copy()
+            #grid_network.update_network(velocity[:2]*dt)
+            #activity = grid_network.network_activity.copy()
+            activity, pos_internal = mmc.update(velocity*dt)
+
 
             # network online prediction
             if (predict_during_simulation):
@@ -330,8 +270,10 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
                 prediction_pos = rls.predict(noisy_activity)
                 predicted_pos_log.append(prediction_pos)
                 prediction_mse_log.append((prediction_pos-current_position)**2)
+                integrated_pos_log.append(pos_internal)
 
-                noisy_position = current_position #+ np.random.multivariate_normal(current_position, noise_covariance #not implemented)           
+                # learn using noisy position (internal integrator + global gps)
+                noisy_position = (0.1*current_position + 0.9*pos_internal)/2            
                 rls.update(noisy_activity, noisy_position) # update using noise
 
             # saving values
@@ -339,7 +281,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
             network_states.append(activity)
         
         # fail save, adjust for actual arena radius size
-        if (np.linalg.norm(current_position[:2]) > 2*(2.5**2)):
+        if (np.linalg.norm(current_position) > 3*(2.5**2)):
             break
     
     # ---------------- End of Simulation ----------------
@@ -351,17 +293,17 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     arena_size = np.sqrt(np.max(np.sum(np.array(position_log)**2, axis=1)))
     print(f' - effective Arena size: {arena_size}')
 
-    # 3D path
-    plot_3d_trajectory(np.array(position_log), ID)
-    
     # Visualize the network activity and complete path coverage
     print('Generating Images...')
+    # 3D path
+    plot_3d_trajectory(np.array(position_log), ID)
+    plot_modular_activity(mmc, position_log, network_states, ID)
+ 
     #grid_network.plot_frame_figure(positions_array=position_log, network_activity=network_states, num_bins=60, ID=ID)
-
     # Generate activity plots for each neuron
     #grid_network.plot_activity_neurons(np.array(position_log), num_bins=60, neuron_range=range(grid_network.N), network_activity=np.array(network_states), ID=ID)
-    print('Saved activity plot\nCalculating prediction...')
     
+    print('Saved activity plot\nCalculating prediction...')
     if (predict_during_simulation):
         mse_mean = np.mean(prediction_mse_log)
         PredictionModel.plot_prediction_path(np.array(position_log), np.array(predicted_pos_log), mse_mean, ID=ID)
@@ -370,10 +312,9 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         r2_shuffeled = 'NaN'
     else:
          # Predict the position using a linear model and plot the results
-        X, y, y_pred, mse_mean, mse_shuffeled, r2_mean, r2_shuffeled = grid_network.fit_linear_model(network_states, position_log, return_shuffled=True)
-        grid_network.plot_prediction_path(y, y_pred, mse_mean, r2_mean, ID=ID)
+        X, y, y_pred, mse_mean, mse_shuffeled, r2_mean, r2_shuffeled = fit_linear_model(network_states, position_log, return_shuffled=True)
+        plot_prediction_path(y, y_pred, mse_mean, ID=ID)
     print('Saved prediction plot')
-        
 
     # Save the results of the network
     ''' Not necessarly useful anymore
@@ -392,11 +333,11 @@ if __name__ == '__main__':
     #trans_field = robot_node.getField("translation")
 
     #INITIAL = [0, 0, 1]
-    gains = [0.1, 0.2, 0.3, 0.4, 0.5]
+    gains = [0.2, 0.4, 0.6, 0.8, 1.0]
     id_ = 'Naive_3D'
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=40.0, predict_during_simulation=False)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=30.0, predict_during_simulation=False)
 
     #plot_fitting_results(nr, spacing, mse_means)

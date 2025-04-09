@@ -5,9 +5,48 @@ from sklearn.model_selection import cross_val_predict, cross_val_score, KFold
 from sklearn.linear_model import Ridge, LinearRegression
 from tqdm import tqdm
 
+class MixedModularCoder:
+    def __init__(self, M=2, N=3, gains=[0.1, 0.2, 0.3, 0.4, 0.5]):
+        print('Hello')
+        #self.A = np.random.normal(size=(M, 2, N))
+        #norm = np.linalg.norm(A, axis=(1, 2), keepdims=True)
+        #self.A = A / norm
+        self.A = np.array([
+            [[1, 0, 0], [0,1,0]],
+            [[0,1,0], [0,0,1]]
+        ])
+        # booplean mask for each m stating the dimension it projects
+        self.projected_dim = np.any(self.A != 0, axis=1)
+        self.pos_integrator = np.array([0.0,0.0,0.0])
+
+        nx = 10
+        ny = 9
+        self.M = M
+        self.nrGains = len(gains)
+        self.mod_size = nx*ny*len(gains)
+        self.ac_size = self.mod_size * M
+        self.Module = []
+        for m in range(M):
+            self.Module.append(GridNetwork(nx, ny, gains=gains))
+        print('Initialised Mixed Modular Coder')
+
+    def update(self, velocity):
+        activity = np.zeros((self.M, self.nrGains, self.mod_size//self.nrGains))
+        vel2D = self.project_velocity(velocity)
+        for i, m in enumerate(self.Module):
+            activity[i] = m.update_network(vel2D[i])
+
+        self.pos_integrator += velocity
+        return activity, self.pos_integrator
+
+    def project_velocity(self, vel3D):
+        return np.einsum('mnx, x->mn', self.A, vel3D)
+    def project_positions(self, pos3D):
+        return np.einsum('mnx,tx->mtn', self.A, pos3D)
+
 class GridNetwork:
     
-    def __init__(self, N_x, N_y, Seed=42, beta=0):
+    def __init__(self, N_x, N_y, gains=None, Seed=42, beta=0):
         """
         Initialize the network of grid cells
 
@@ -28,7 +67,10 @@ class GridNetwork:
         self.T = 0.05                               # shift parameter (determining excitatory and inhibitory connections)
         self.sigma = 0.24                           # size of the gaussian
         self.tau = 0.8                              # normalization parameter
-        self.gains = np.arange(1,3.1,0.5)           # Gain parameters (layers of the network)
+        if gains is None:
+            self.gains = np.arange(1,3.1,0.5)           # Gain parameters (layers of the network)
+        else:
+            self.gains = gains
         self.beta = beta                               # bias parameter (rotation of the grid)
         self.R = np.array([[np.cos(self.beta), -np.sin(self.beta)],[np.sin(self.beta), np.cos(self.beta)]]) # rotation matrix
 
@@ -162,7 +204,7 @@ class GridNetwork:
     #    rng = np.random.default_rng(seed=self.seed)
     #    self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
 
-    def plot_frame_figure(self, positions_array, num_bins, network_activity, neuron=42, ID=0):
+    def plot_frame_figure(self, positions_array, num_bins, network_activity, neuron=42, ID=0, subID=None):
         """
         Plots a heatmap of network activity at different gain levels and overlays the trajectory. 
         The plot is saved in the results folder within the relative directory.
@@ -218,7 +260,11 @@ class GridNetwork:
 
 
         fig.tight_layout(h_pad=3.0) # Adjust layout # change spacing between plots
-        plt.savefig(f'Results\\ID{ID}\\result_activity_figure.png', format='png') # save in relative folder Results in Source/Repos/SelfLocalisationCF
+        if subID is None:
+            path = f'Results\\ID{ID}\\result_activity_figure.png'
+        else:
+            path = f'Results\\ID{ID}\\activity_{subID}.png'
+        plt.savefig(path, format='png') # save in relative folder Results in Source/Repos/SelfLocalisationCF
         plt.close()
 
     def plot_activity_neurons(self, positions_array, num_bins, neuron_range, network_activity, ID=0):

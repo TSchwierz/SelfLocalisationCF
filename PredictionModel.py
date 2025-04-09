@@ -1,6 +1,8 @@
 ﻿import numpy as np
 import matplotlib.pyplot as plt
 from time import perf_counter
+from sklearn.linear_model import Ridge
+from sklearn.model_selection import KFold, cross_val_predict, cross_val_score
 
 def plot_prediction_path(y, y_pred, mse_mean, ID=0):
     '''
@@ -10,32 +12,137 @@ def plot_prediction_path(y, y_pred, mse_mean, ID=0):
     :params y_pred: np.array (ntime, ndim), predicted path
     :params mse_mean: float, the mean-square-error of the prediction
     '''
-    size = int(len(y)/5)
-    size = np.clip(size, 10, 10000)
-    plt.figure(figsize=(12, 7))
+    stop = int(len(y)/5)
+    stop = np.clip(stop, 10, 10000)
 
-    fig, axs = plt.subplots(2,1)
-    fig.suptitle(f'Actual vs Predicted Path. Total MSE = {mse_mean}')
+    if np.shape(y)[1]==2: # 2D
+        plt.figure(figsize=(12, 7))
 
-    axs[0].plot(y[:size, 0], y[:size, 1], 'b-', label='Actual')
-    axs[0].plot(y_pred[:size, 0], y_pred[:size, 1], 'r,', label='Predicted')
-    axs[1].set_xlabel("X")
-    axs[1].set_ylabel("Y")
-    axs[0].legend()
-    axs[0].grid()
-    axs[0].set_title(f'First {size} iterations.')
+        fig, axs = plt.subplots(2,1)
+        fig.suptitle(f'Actual vs Predicted Path. Total MSE = {mse_mean}')
+
+        axs[0].plot(y[:stop, 0], y[:stop, 1], 'b-', label='Actual')
+        axs[0].plot(y_pred[:stop, 0], y_pred[:stop, 1], 'r,', label='Predicted')
+        axs[1].set_xlabel("X")
+        axs[1].set_ylabel("Y")
+        axs[0].legend()
+        axs[0].grid()
+        axs[0].set_title(f'First {stop} iterations.')
     
-    axs[1].plot(y[-size:, 0], y[-size:, 1], 'b-', label="Actual", alpha=0.6) 
-    axs[1].plot(y_pred[-size:, 0], y_pred[-size:, 1], 'r,', label="Predicted", alpha=0.6)
-    axs[1].set_xlabel("X")
-    axs[1].set_ylabel("Y")
-    axs[1].legend()
-    axs[1].grid()
-    axs[1].set_title(f'Last {size} iterations.')
+        axs[1].plot(y[-stop:, 0], y[-stop:, 1], 'b-', label="Actual", alpha=0.6) 
+        axs[1].plot(y_pred[-stop:, 0], y_pred[-stop:, 1], 'r,', label="Predicted", alpha=0.6)
+        axs[1].set_xlabel("X")
+        axs[1].set_ylabel("Y")
+        axs[1].legend()
+        axs[1].grid()
+        axs[1].set_title(f'Last {stop} iterations.')
 
-    plt.tight_layout()
-    plt.savefig(f'Results\\ID{ID}\\result_prediction.png', format='png')
-    plt.close()
+        plt.tight_layout()
+        plt.savefig(f'Results\\ID{ID}\\result_prediction.png', format='png')
+        plt.close()
+
+    elif np.shape(y)[1]==3:  # 3D
+        
+        # Unpack the actual and predicted coordinates
+        x, y_actual, z = y[:, 0], y[:, 1], y[:, 2]
+        x_pred, y_pred_val, z_pred = y_pred[:, 0], y_pred[:, 1], y_pred[:, 2]
+
+        # Create a new figure and 3D axis
+        fig = plt.figure(figsize=(12, 9))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Plot the actual and predicted paths
+        ax.plot(x[:stop], y_actual[:stop], z[:stop], label='Actual path', color='blue')
+        ax.plot(x_pred[:stop], y_pred_val[:stop], z_pred[:stop], 'r,', label='Predicted path')
+
+        # Determine constant projection planes.
+        # For example, we can set each projection at the minimum value of that coordinate.
+        x_min, y_min, z_min = np.min(x), np.min(y_actual), np.min(z)
+
+        # Projection onto the xy-plane (fix z = z_min)
+        ax.plot(x[:stop], y_actual[:stop], zs=z_min, zdir='z',
+                label='XY projection', color='green', linestyle='--', alpha=0.5)
+
+        # Projection onto the xz-plane (fix y = y_min)
+        ax.plot(x[:stop], z[:stop], zs=y_min, zdir='y',
+                label='XZ projection', color='purple', linestyle='--', alpha=0.5)
+
+        # Projection onto the yz-plane (fix x = x_min)
+        ax.plot(y_actual[:stop], z[:stop], zs=x_min, zdir='x',
+                label='YZ projection', color='orange', linestyle='--', alpha=0.5)
+
+        # Label axes, legend, and set title
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+        ax.legend()
+        ax.set_title(f'First {stop} iterations. Mean MSE = {mse_mean}')
+
+        plt.tight_layout()
+        # Save and show the figure
+        plt.savefig(f'Results\\ID{ID}\\prediction.png', format='png')
+        plt.show()
+        plt.close()
+
+
+def fit_linear_model(activity_array, pos, return_shuffled=False, alpha=1.0, cv_folds=10, seed=42):
+    '''
+    Predicts the location of the agent based on the activity level of the network
+
+    :param activity_array: np.array featuring the time history of network activity. shape (ntime, (nmodules,) ngain, nneuron)
+    :param pos: list of shape (ntime, ndim), position log of the agent
+    :param return_shuffled: bool, default=False
+    :param alpha: float, parameter used for the regression model
+    :param cv_folds: int, amount of folds to divide the data into
+
+    Returns:
+        tuple: (X (np.array), y (np.array), y_pred (np.array), mse_mean (float), r2_mean (float)) OR
+        tuple: (X (np.array), y (np.array), y_pred (np.array), mse_mean (float), mse_mean_shuffeled (float), r2_mean (float), r2_mean_shuffeled)
+    '''
+    np.random.seed(seed)
+
+    X = np.array(activity_array).reshape(np.shape(activity_array)[0],-1)  # shape is (time, modules*gains*N)
+    y = np.array(pos)  # shape is (time, 3)
+
+    # Initialize the Ridge regression model with specified alpha
+    model = Ridge(alpha=alpha)
+    # model = LinearRegression()
+
+    # Perform K-Fold cross-validation
+    kf = KFold(n_splits=cv_folds, shuffle=True, random_state=seed)
+
+    # Cross-validation scores for MSE
+    mse_scores = -cross_val_score(model, X, y, cv=kf, scoring='neg_mean_squared_error', n_jobs=-1) #n_jobs <- enables parallel processing
+    #          parallel processing seems to malfunction with cleaning up temporary files, possible leading to memory leakage
+
+    # Cross-validation scores for R2
+    r2_scores = cross_val_score(model, X, y, cv=kf, scoring='r2', n_jobs=-1)
+    # Crossval estimates
+    y_pred = cross_val_predict(model, X, y, cv=kf)
+
+    # Compute the average and standard deviation of MSE and R2 scores across folds
+    mse_mean = round(np.mean(mse_scores), 5)
+    mse_std = round(np.std(mse_scores), 5)
+    r2_mean = round(np.mean(r2_scores), 5)
+    r2_std = round(np.std(r2_scores), 5)
+
+    if return_shuffled == False:
+        return X, y, y_pred, mse_mean, r2_mean
+
+    else:  # Fit linear model with shuffled labels
+        y_shuffled = y.copy()
+        np.random.shuffle(y_shuffled)  # Shuffle the labels
+        mse_shuffled_scores = -cross_val_score(model, X, y_shuffled, cv=kf, scoring='neg_mean_squared_error') # Cross-validation scores for MSE with shuffled labels         
+        r2_shuffled_scores = cross_val_score(model, X, y_shuffled, cv=kf, scoring='r2') # Cross-validation scores for R2 with shuffled labels
+
+        # Compute the average and standard deviation of MSE and R2 scores for shuffled data
+        mse_shuffled_mean = round(np.mean(mse_shuffled_scores), 5)
+        mse_shuffled_std = round(np.std(mse_shuffled_scores), 5)
+        r2_shuffled_mean = round(np.mean(r2_shuffled_scores), 5)
+        r2_shuffled_std = round(np.std(r2_shuffled_scores), 5)
+
+        return X, y, y_pred, mse_mean, mse_shuffled_mean, r2_mean, r2_shuffled_mean
+
 
 def makeKFandRLS(feature_dim, pos_dim, process_noise=0.1, measurement_noise=1.):
     
