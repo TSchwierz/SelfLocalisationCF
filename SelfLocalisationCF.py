@@ -10,20 +10,20 @@ The simulation logs the drone's position and grid network activity, then visuali
 predicts the drone's path using a linear model.
 """
 
-from asyncio.windows_events import NULL
-from multiprocessing.heap import Arena
+#from asyncio.windows_events import NULL
+#from multiprocessing.heap import Arena
 import os
-from PIL.Image import ID
+#from turtle import position
+#from PIL.Image import ID
 import numpy as np
-import matplotlib.pyplot as plt
 from controller import Robot
 #from controller import Supervisor
 from DroneController import DroneController
-from GridNetwork import GridNetwork, MixedModularCoder
+from GridNetwork import MixedModularCoder
 import PredictionModel
 from datetime import datetime
 import pickle
-from PredictionModel import fit_linear_model, plot_prediction_path
+from PredictionModel import fit_linear_model
 
 # ---------------- Simulation Parameters ----------------
 FLYING_ATTITUDE = 0              # Base altitude (z-value) for flying
@@ -63,67 +63,6 @@ def load_object(filename):
     except Exception as ex:
         print("Error during unpickling object (Possibly unsupported):", ex)
 
-def plot_modular_activity(mmc, pos_log, ac_log, ID):
-    pos2D = mmc.project_positions(pos_log)
-    activity = np.array(ac_log)
-    for i, m in enumerate(mmc.Module):
-        m.plot_frame_figure(pos2D[i], 50, activity[:,i], ID=ID, subID=f'mod{i}')
-
-def plot_3d_trajectory(pos, ID='null'):
-    x, y, z = pos[:,0], pos[:,1], pos[:,2]
-
-    start, stop = 0, len(x)
-    time = np.linspace(start, stop, stop) / stop
-    plt.plot(time, x[start:stop], 'b:', label='x')
-    plt.plot(time, y[start:stop], 'r:', label='y')
-    plt.plot(time, z[start:stop], 'g:', label='z')
-    plt.axhline(ARENA_BOUNDARIES[0,0], c='c', label = 'x-y limit')
-    plt.axhline(ARENA_BOUNDARIES[0,1], c='c')
-    plt.axhline(ARENA_BOUNDARIES[2,0], c='g', label = 'alt limit')
-    plt.axhline(ARENA_BOUNDARIES[2,1], c='g')
-    plt.ylim(-3, 3.5)
-    plt.grid()
-    plt.legend()
-
-    plt.savefig(f'Results\\ID{ID}\\3d_trajectory_timeplot.png', format='png')
-    plt.close()
-
-    ax = plt.figure().add_subplot(projection='3d')
-    ax.plot(x[:stop], y[:stop], z[:stop], label='path')
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_zlabel('z')
-    ax.legend()
-
-    plt.savefig(f'Results\\ID{ID}\\3d_trajectory_spaceplot.png', format='png')
-    plt.close()
-
-def plot_fitting_results(n, spacing, score):
-    '''
-    Plot the scoring of gain configurations as a heatmap based on the number of gains and the spacing between them
-    
-    :param n: list with the amount of gains
-    :param spacing: list with the spacings between gains
-    :param score: a flattened list of size (n, spacing) that contains the score of each configuration 
-    '''
-    heatmap = np.array(score).reshape((len(n), len(spacing)))
-    fig, ax = plt.subplots()
-    im = ax.imshow(heatmap)
-    ax.set_yticks(range(len(n)), labels=n,
-                  rotation=45, ha="right", rotation_mode="anchor")
-    ax.set_xticks(range(len(spacing)), labels=spacing)
-
-    for i in range(len(n)):
-        for j in range(len(spacing)):
-            text = ax.text(j, i, f'ID{i*j+j}\n{heatmap[i, j]}',
-                           ha="center", va="center", color="w")
-
-    ax.set_title("MSE Scoring over number (y) and spacing (x) of gains")
-    fig.colorbar(im)
-    fig.tight_layout()
-    plt.savefig(f'Results\\best_gain_results.png', format='png') # save in relative folder Results in Source/Repos/SelfLocalisationCF
-    plt.close()
-
 def adjust_for_boundaries(boundaries, position, movement_vector):
     """
     Adjust the movement vector if the new position would exceed the arena boundaries.
@@ -149,34 +88,7 @@ def adjust_for_boundaries(boundaries, position, movement_vector):
             adjusted_vector[i] = upper_bounds[i] - position[i]
     return adjusted_vector
 
-def update_direction(current_direction, magnitude, dt, angular_std=0.1):
-    """
-    Update the drone's movement direction using a small random angular increment.
-    
-    This function implements a simple random walk in the angular domain. At each update, the current
-    angle is perturbed by a small random value (scaled by sqrt(dt) for consistency with time resolution),
-    producing smooth and continuous changes in the movement direction.
-
-    :param current_direction: Current 2D movement vector.
-    :param magnitude: Desired magnitude of the new movement vector.
-    :param dt: Time step (in seconds).
-    :param angular_std: Standard deviation of the angular change (in percentage of pi).
-    :return: Updated 2D movement vector with the specified magnitude.
-    """
-    # If the current direction is nearly zero, choose a random initial angle
-    if np.linalg.norm(current_direction) < 1e-6:
-        current_angle = np.random.uniform(-np.pi, np.pi)
-    else:
-        current_angle = np.arctan2(current_direction[1], current_direction[0])
-    
-    # Add a small random angular change; using sqrt(dt) for time scaling
-    d_angle = np.random.normal(0, angular_std*np.pi) #* np.sqrt(dt))
-    new_angle = current_angle + d_angle
-    # Ensure the angle remains in the interval (-pi, pi)
-    new_angle = (new_angle + np.pi) % (2 * np.pi) - np.pi
-    return np.array([np.cos(new_angle), np.sin(new_angle)]) * magnitude
-
-def update_direction3D(current_direction, magnitude, dt, angular_std=0.25):
+def update_direction(current_direction, magnitude, dt, angular_std=0.25):
     """
     Update the drone's movement direction in 3D using a small random rotation.
     
@@ -231,14 +143,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     # Initialize simulation components
     robot = robot_
     timestep_ms = int(robot.getBasicTimeStep())
-    dt = timestep_ms / 1000.0  # Convert timestep to seconds
-    controller = DroneController(robot, FLYING_ATTITUDE)
-    
-    #grid_network = GridNetwork(10, 9) # make a network with Nx=10 x Ny=9 neurons 
-    #grid_network.set_gains(gains)
-    #grid_network = load_object('data.pickle')
-    mmc = MixedModularCoder(gains=gains)
-    rls = PredictionModel.RLSRegressor(mmc.ac_size, num_outputs=3, lambda_=0.999, delta=1e2)
+    dt = timestep_ms / 1000.0  # Convert timestep to seconds   
     
     # Initialize state variables
     previous_direction = np.array([0, 0, 0])  # Initial xyz movement direction
@@ -252,6 +157,10 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     predicted_pos_log = []
     prediction_mse_log = []
     integrated_pos_log = []
+
+    controller = DroneController(robot, FLYING_ATTITUDE)
+    mmc = MixedModularCoder(position_real, gains=gains)
+    rls = PredictionModel.RLSRegressor(mmc.ac_size, num_outputs=3, lambda_=0.999, delta=1e2)
     
     MAX_SIMULATION_TIME = 60 * simulated_minutes # 1min in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
@@ -278,7 +187,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         
             # Issue a new movement command at defined intervals (after the initial pause)
             if (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
-                movement_direction = update_direction3D(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.5) # Update direction using a small-angle random walk     
+                movement_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.5) # Update direction using a small-angle random walk     
                 movement_direction = adjust_for_boundaries(ARENA_BOUNDARIES, position_real, movement_direction) # Adjust the movement to respect arena boundaries
                 previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
                 #print(movement_direction)
@@ -296,10 +205,11 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
                 prediction_pos = rls.predict(noisy_activity)
                 predicted_pos_log.append(prediction_pos)
                 prediction_mse_log.append((prediction_pos-position_real)**2)
-                integrated_pos_log.append(pos_internal)
+                integrated_pos_log.append(pos_internal.copy())
 
                 # learn using noisy position (internal integrator + global gps)
-                noisy_position = (0.05*position_real + 0.95*pos_internal)            
+                noise_ratio = 1.
+                noisy_position = (noise_ratio*pos_internal + (1.-noise_ratio)*position_real)            
                 rls.update(noisy_activity, noisy_position) # update using noise
 
             # saving values
@@ -314,33 +224,16 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     print(f'Simulation finished at {elapsed_time/60:.0f} minutes')
     print(f' - Position log: shape {np.shape(position_log)}, min {np.min(position_log, axis=0)}, max {np.max(position_log, axis=0)}')
     print(f' - Network state: shape {np.shape(network_states)}, min {np.min(network_states)}, max {np.max(network_states)}')
-    
-    # Compute the effective arena size (maximum radial distance reached)
-    arena_size = np.sqrt(np.max(np.sum(np.array(position_log)**2, axis=1)))
-    print(f' - effective Arena size: {arena_size}')
-
-    # Visualize the network activity and complete path coverage
-    #print('Generating Images...')
-    # 3D path
-    #plot_3d_trajectory(np.array(position_log), ID)
-    #plot_modular_activity(mmc, position_log, network_states, ID)
- 
-    #grid_network.plot_frame_figure(positions_array=position_log, network_activity=network_states, num_bins=60, ID=ID)
-    # Generate activity plots for each neuron
-    #grid_network.plot_activity_neurons(np.array(position_log), num_bins=60, neuron_range=range(grid_network.N), network_activity=np.array(network_states), ID=ID)
-    
     print('Calculating prediction...')
     if (predict_during_simulation):
         mse_mean = np.mean(prediction_mse_log)
-        #PredictionModel.plot_prediction_path(np.array(position_log), np.array(predicted_pos_log), mse_mean, ID=ID)
         mse_shuffeled = 'NaN'
         r2_mean = 'NaN'
         r2_shuffeled = 'NaN'
     else:
          # Predict the position using a linear model and plot the results
         X, y, y_pred, mse_mean, mse_shuffeled, r2_mean, r2_shuffeled = fit_linear_model(network_states, position_log, return_shuffled=True)
-        #plot_prediction_path(y, y_pred, mse_mean, ID=ID)
-    print('Predicted location data')
+    print(' - Predicted location data\nSaving data...')
 
     # Save the results of the network
     data = {
@@ -348,7 +241,6 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         'name' : ID,
         'sim time' : simulated_minutes,
         'dt ms' : timestep_ms,
-        'radius' : arena_size,
         'boundaries' : ARENA_BOUNDARIES,
         'position' : position_log,
         'position internal' : integrated_pos_log,
@@ -365,7 +257,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         }
     filename = f'Data {ID}.pickle'
     save_object(data, f'Results\\ID {ID}\\{filename}')
-    print(f'Saved Data as {filename}')
+    print(f' - Saved Data as {filename}')
     
     print(f'Finished execution of ID {ID}')
 
@@ -382,5 +274,3 @@ if __name__ == '__main__':
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
     main(ID=id_, gains=gains, robot_=robot, simulated_minutes=6.0, predict_during_simulation=True)
-
-    #plot_fitting_results(nr, spacing, mse_means)
