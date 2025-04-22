@@ -144,6 +144,9 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     robot = robot_
     timestep_ms = int(robot.getBasicTimeStep())
     dt = timestep_ms / 1000.0  # Convert timestep to seconds   
+    controller = DroneController(robot, FLYING_ATTITUDE)
+    mmc = MixedModularCoder(gains=gains)
+    rls = PredictionModel.RLSRegressor(mmc.ac_size, num_outputs=3, lambda_=0.999, delta=1e2)
     
     # Initialize state variables
     previous_direction = np.array([0, 0, 0])  # Initial xyz movement direction
@@ -151,16 +154,12 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     target_altitude = altitude           # Target altitude (may be updated)
     elapsed_time = 0
     network_states = []
-    position_log = []
-    position_real = np.array(robot_.getDevice("gps").getValues())
+    position_log = []   
+
     # For online prediction:
     predicted_pos_log = []
     prediction_mse_log = []
     integrated_pos_log = []
-
-    controller = DroneController(robot, FLYING_ATTITUDE)
-    mmc = MixedModularCoder(position_real, gains=gains)
-    rls = PredictionModel.RLSRegressor(mmc.ac_size, num_outputs=3, lambda_=0.999, delta=1e2)
     
     MAX_SIMULATION_TIME = 60 * simulated_minutes # 1min in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
@@ -181,6 +180,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         else:
             if(controller.initial_pid):
                 controller.change_gains_pid(kp=2.0, kd=3.0, ki=0.0)
+                mmc.set_integrator(controller.get_location()) # get real position once to set integrator
 
             # Default movement: no change unless a new command is issued at the interval #2d for proper function
             movement_direction = np.array([0, 0])
@@ -201,15 +201,17 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
 
             # network online prediction
             if (predict_during_simulation):
-                noisy_activity = np.clip(activity + np.random.normal(0, NEURAL_NOISE_VAR, np.shape(activity)), 0.0, 1.0)
+                noise = np.random.normal(0, NEURAL_NOISE_VAR, np.shape(activity))
+                noisy_activity = np.clip(activity + noise, 0.0, 1.0)
                 prediction_pos = rls.predict(noisy_activity)
+
                 predicted_pos_log.append(prediction_pos)
                 prediction_mse_log.append((prediction_pos-position_real)**2)
                 integrated_pos_log.append(pos_internal.copy())
 
                 # learn using noisy position (internal integrator + global gps)
-                noise_ratio = 1.
-                noisy_position = (noise_ratio*pos_internal + (1.-noise_ratio)*position_real)            
+                #noise_ratio = 1.
+                noisy_position = pos_internal #(noise_ratio*pos_internal + (1.-noise_ratio)*position_real)            
                 rls.update(noisy_activity, noisy_position) # update using noise
 
             # saving values
@@ -268,9 +270,9 @@ if __name__ == '__main__':
     #trans_field = robot_node.getField("translation")
 
     #INITIAL = [0, 0, 1]
-    gains = [0.2, 0.4, 0.6, 0.8, 1.0]
-    id_ = 'MMC Online'
+    gains = [0.1, 0.2, 0.3, 0.4, 0.5]
+    id_ = 'MMC Online small gains'
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=6.0, predict_during_simulation=True)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=30.0, predict_during_simulation=True)

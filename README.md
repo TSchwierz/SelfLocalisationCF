@@ -23,13 +23,13 @@ This project aims to implement self localisation using a grid cell model as pres
 
 
 ## Current Tasks (no particular order):
-1. Fixed positional integrator and z-prediction but not tested yet.
 1. need to test if data file is consistently bigger then allowed by GitHub.
 1. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
 3. Refine the position prediction algorithm by reducing time spent calculating the covariance matrix.
 
 
 ## Latest Change:
+**22.04.:** Fixed some issues with setting the position integrator. Generated some data to analyse.<br>
 **10.04.:** Fixed positional integrator and z-prediction offset. (Untested as webots can't start after windows updated). Clean-up code by removing deprecated functions.<br>
 **09.04.:** Implemented 1.) The network is using an internal positional integrator (using the velocity) instead of learning from the actual position.  2.) 3d online prediction is made. 3.) Data of the simulation is saved as a file and plotting for results can be done through a seperate notebook.<br>
 **08.04.:** (Commited 09.04.) Added mixed modular coding to the grid network to achieve a 3 dimensional grid network.<br>

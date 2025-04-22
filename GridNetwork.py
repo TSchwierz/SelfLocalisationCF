@@ -6,18 +6,18 @@ from sklearn.linear_model import Ridge, LinearRegression
 from tqdm import tqdm
 
 class MixedModularCoder:
-    def __init__(self, start, M=2, N=3, gains=[0.1, 0.2, 0.3, 0.4, 0.5]):
-        print('Hello')
+    def __init__(self, M=2, N=3, gains=[0.1, 0.2, 0.3, 0.4, 0.5]):
+        # Random projection assignment
         #self.A = np.random.normal(size=(M, 2, N))
         #norm = np.linalg.norm(A, axis=(1, 2), keepdims=True)
         #self.A = A / norm
+
         self.A = np.array([
             [[1, 0, 0], [0,1,0]],
             [[0,1,0], [0,0,1]]
         ])
         # booplean mask for each m stating the dimension it projects
         self.projected_dim = np.any(self.A != 0, axis=1)
-        self.pos_integrator = start
 
         nx = 10
         ny = 9
@@ -29,6 +29,9 @@ class MixedModularCoder:
         for m in range(M):
             self.Module.append(GridNetwork(nx, ny, gains=gains))
         print('Initialised Mixed Modular Coder')
+
+    def set_integrator(self, pos):
+        self.pos_integrator = pos
 
     def update(self, velocity):
         activity = np.zeros((self.M, self.nrGains, self.mod_size//self.nrGains))

@@ -54,6 +54,9 @@ class DroneController:
 
         print('DroneController initialized')
 
+    def get_location(self):
+        return np.array(self.gps.getValues())
+
     def change_gains_pid(self, kp = 1.0, kd = 1.4, ki = 0.0):
         self.pid_controller.gains["kp_z"] = kp
         self.pid_controller.gains["kd_z"] = kd
