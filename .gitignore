@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+/Results/ID MMC Online/Data MMC Online.pickle
+/Results/ID MMC Online small gains/Data MMC Online small gains.pickle
+/Results/ID MMC Online/Data MMC Online.pickle
