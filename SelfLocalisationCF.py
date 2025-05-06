@@ -170,13 +170,13 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
             if(controller.initial_pid):
                 controller.change_gains_pid(kp=0.5, kd=1.0, ki=0.0)
                 mmc.set_integrator(controller.get_location()) # get real position once to set integrator
-
-            # Default movement: no change unless a new command is issued at the interval #2d for proper function
-            movement_direction = np.array([0, 0])
+                # Default movement: no change unless a new command is issued at the interval #2d for proper function
+                movement_direction = np.array([0, 0])
+            
         
             # Issue a new movement command at defined intervals (after the initial pause)
             if (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
-                movement_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.0) # Update direction using a small-angle random walk     
+                movement_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=1.0) # Update direction using a small-angle random walk     
                 movement_direction = adjust_for_boundaries(ARENA_BOUNDARIES, position_real, movement_direction) # Adjust the movement to respect arena boundaries
                 previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
                 #print(movement_direction)
