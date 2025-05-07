@@ -144,6 +144,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     elapsed_time = 0
     network_states = []
     position_log = []   
+    velocity_log = []
 
     # For online prediction:
     predicted_pos_log = []
@@ -176,7 +177,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         
             # Issue a new movement command at defined intervals (after the initial pause)
             if (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
-                movement_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=1.0) # Update direction using a small-angle random walk     
+                movement_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.01) # Update direction using a small-angle random walk     
                 movement_direction = adjust_for_boundaries(ARENA_BOUNDARIES, position_real, movement_direction) # Adjust the movement to respect arena boundaries
                 previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
                 #print(movement_direction)
@@ -203,6 +204,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
                 rls.update(noisy_activity, noisy_position) # update using noise
 
             # saving values
+            velocity_log.append(velocity)
             position_log.append(position_real)
             integrated_pos_log.append(pos_internal.copy())
             network_states.append(activity)
@@ -235,6 +237,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         'dt ms' : timestep_ms,
         'boundaries' : ARENA_BOUNDARIES,
         'noise' : noise_scales,
+        'velocity' : velocity_log,
         'position' : position_log,
         'position internal' : integrated_pos_log,
         'position prediction' : predicted_pos_log,
@@ -266,4 +269,4 @@ if __name__ == '__main__':
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=30.0, predict_during_simulation=False)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=5.0, predict_during_simulation=False)

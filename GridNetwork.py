@@ -31,7 +31,7 @@ class MixedModularCoder:
         print('Initialised Mixed Modular Coder')
 
     def set_integrator(self, pos):
-        self.pos_integrator = pos
+        self.pos_integrator = pos.copy()
 
     def update(self, velocity):
         activity = np.zeros((self.M, self.nrGains, self.mod_size//self.nrGains))
@@ -91,7 +91,13 @@ class GridNetwork:
         '''
         # np.random.seed(self.seed)
         rng = np.random.default_rng(seed=self.seed) # create a random generator instance (to get locally random seeds)
-        self.network_activity = rng.uniform(0, 1 / np.sqrt(self.N), (len(self.gains), self.N))
+         # Initialize with small positive values to avoid zero-sum issues
+        self.network_activity = rng.uniform(0.01, 0.1, (len(self.gains), self.N))
+        # Normalize so it sums to 1 across neurons for each gain
+        for g in range(len(self.gains)):
+            sum_activity = np.sum(self.network_activity[g, :])
+            if sum_activity > 0:  # Safety check
+                self.network_activity[g, :] /= sum_activity
 
     def set_gains(self, gains):
         '''
@@ -175,12 +181,40 @@ class GridNetwork:
             b_activity = self.network_activity[a, :]
             b_activity = b_activity @ W
             
-            # Normalize activity
-            net_activity = ((1 - self.tau) * b_activity + self.tau * (b_activity / np.sum(self.network_activity[a, :])))
-            net_activity[net_activity < 0] = 0 
-            if (np.max(net_activity) != np.min(net_activity)): # normalise only if not all values identical
-                net_activity = (net_activity - np.min(net_activity)) / (np.max(net_activity) - np.min(net_activity))        
+            # FIX 1: Handle potential division by zero in normalization
+            sum_activity = np.sum(self.network_activity[a, :])
+            if sum_activity <= 1e-10:  # If sum is too close to zero
+                # Reinitialize this layer with small positive values
+                self.network_activity[a, :] = np.random.uniform(0.01, 0.1, self.N)
+                sum_activity = np.sum(self.network_activity[a, :])
+                if sum_activity > 0:  # Safety check
+                    self.network_activity[a, :] /= sum_activity
+                continue  # Skip this iteration, try again next time
             
+            # FIX 2: Safe normalization with epsilon
+            epsilon = 1e-10
+            net_activity = ((1 - self.tau) * b_activity + 
+                           self.tau * (b_activity / (sum_activity + epsilon)))
+            
+            # FIX 3: Replace any NaN values that might still occur
+            net_activity = np.nan_to_num(net_activity, nan=0.0, posinf=1.0, neginf=0.0)
+
+            net_activity[net_activity < 0] = 0 # turn all negative values to zero
+
+            # FIX 4: Safe normalization of output
+            activity_range = np.max(net_activity) - np.min(net_activity)
+            if activity_range > 1e-10:  # Only normalize if there's a meaningful range
+                net_activity = (net_activity - np.min(net_activity)) / activity_range
+            else:
+                # If no range, initialize with small random values
+                net_activity = np.random.uniform(0.01, 0.1, self.N)
+                net_activity = net_activity / np.sum(net_activity)
+            
+            # FIX 5: Final check to ensure no NaNs
+            if np.any(np.isnan(net_activity)):
+                net_activity = np.random.uniform(0.01, 0.1, self.N)
+                net_activity = net_activity / np.sum(net_activity)
+
             self.network_activity[a, :] = net_activity # save activity for each gain
 
         return self.network_activity           

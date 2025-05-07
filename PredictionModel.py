@@ -68,7 +68,7 @@ class RLSRegressor:
         Initializes the RLS regressor.
         
         Parameters:
-        num_features (int): Number of features (e.g., 540 or reduced dimension).
+        num_features (int): Number of features (e.g., 540 or reduced dimension of activity).
         num_outputs (int): Number of outputs (e.g., 2 for a 2D position).
         lambda_ (float): Forgetting factor (0 < lambda_ <= 1). Closer to 1 means slow forgetting.
         delta (float): Initial scaling factor for the inverse covariance matrix.
