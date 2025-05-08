@@ -126,3 +126,83 @@ class RLSRegressor:
         y = y.reshape(-1, 1)
         x_est = np.dot(self.A.T, y)
         return x_est.flatten()
+
+# ---------------- Optimised --------------------------------
+class OptimisedRLS:
+    def __init__(self, num_features, num_outputs, lambda_=0.99, delta=1.0, eps=1e-10):
+        """
+        Initialize the Recursive Least Squares filter.
+        
+        Parameters:
+        num_features (int): Number of input features.
+        num_outputs (int): Number of output dimensions.
+        lambda_ (float): Forgetting factor (0 < lambda <= 1).
+        delta (float): Initial value for P matrix diagonal.
+        eps (float): Small constant to avoid division by zero.
+        """
+        self.lambda_ = lambda_
+        self.eps = eps
+        
+        # Initialize weight matrix (num_features x num_outputs)
+        self.A = np.zeros((num_features, num_outputs))
+        
+        # Initialize inverse correlation matrix (num_features x num_features)
+        self.P = np.eye(num_features) * delta
+        
+        # Pre-allocate memory for commonly used arrays
+        self._Py = np.zeros((num_features, 1))
+        self._yTPy = 0.0
+        self._K = np.zeros((num_features, 1))
+        self._error = np.zeros((num_outputs, 1))
+        self._KyTP = np.zeros((num_features, num_features))
+        
+    def update(self, y, x):
+        """
+        Update the regression weights using a new data pair.
+        
+        Parameters:
+        y (np.ndarray): Input feature vector (neural activity) of shape (num_features,).
+        x (np.ndarray): Target output (e.g., 2D position) of shape (num_outputs,).
+        
+        Returns:
+        np.ndarray: Updated weight matrix.
+        """
+        # Ensure column vector format
+        y_col = y.reshape(-1, 1)  # shape: (num_features, 1)
+        x_col = x.reshape(-1, 1)  # shape: (num_outputs, 1)
+        
+        # Reuse pre-allocated arrays
+        np.dot(self.P, y_col, out=self._Py)
+        self._yTPy = float(np.dot(y_col.T, self._Py)) + self.eps
+        denom = self.lambda_ + self._yTPy
+        
+        # Compute gain vector
+        np.divide(self._Py, denom, out=self._K)
+        
+        # Compute prediction error
+        np.dot(self.A.T, y_col, out=self._error)
+        np.subtract(x_col, self._error, out=self._error)
+        
+        # Update weights
+        self.A += np.dot(self._K, self._error.T)
+        
+        # Update inverse correlation matrix
+        np.dot(self._K, np.dot(y_col.T, self.P), out=self._KyTP)
+        np.subtract(self.P, self._KyTP, out=self.P)
+        np.divide(self.P, self.lambda_, out=self.P)
+        
+        return self.A
+
+    def predict(self, y):
+        """
+        Predict the output given a new feature vector.
+        
+        Parameters:
+        y (np.ndarray): Input feature vector of shape (num_features,).
+        
+        Returns:
+        np.ndarray: Predicted output (e.g., 2D position).
+        """
+        y = y.reshape(-1, 1)
+        x_est = np.dot(self.A.T, y)
+        return x_est.flatten()

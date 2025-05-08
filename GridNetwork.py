@@ -180,9 +180,11 @@ class GridNetwork:
             # Calculate activity using transfer function
             b_activity = self.network_activity[a, :]
             b_activity = b_activity @ W
-            
+                     
             # FIX 1: Handle potential division by zero in normalization
+            
             sum_activity = np.sum(self.network_activity[a, :])
+            '''
             if sum_activity <= 1e-10:  # If sum is too close to zero
                 # Reinitialize this layer with small positive values
                 self.network_activity[a, :] = np.random.uniform(0.01, 0.1, self.N)
@@ -190,6 +192,7 @@ class GridNetwork:
                 if sum_activity > 0:  # Safety check
                     self.network_activity[a, :] /= sum_activity
                 continue  # Skip this iteration, try again next time
+            '''
             
             # FIX 2: Safe normalization with epsilon
             epsilon = 1e-10
@@ -197,11 +200,12 @@ class GridNetwork:
                            self.tau * (b_activity / (sum_activity + epsilon)))
             
             # FIX 3: Replace any NaN values that might still occur
-            net_activity = np.nan_to_num(net_activity, nan=0.0, posinf=1.0, neginf=0.0)
+            #net_activity = np.nan_to_num(net_activity, nan=0.0, posinf=1.0, neginf=0.0)
 
             net_activity[net_activity < 0] = 0 # turn all negative values to zero
 
             # FIX 4: Safe normalization of output
+            '''
             activity_range = np.max(net_activity) - np.min(net_activity)
             if activity_range > 1e-10:  # Only normalize if there's a meaningful range
                 net_activity = (net_activity - np.min(net_activity)) / activity_range
@@ -214,6 +218,7 @@ class GridNetwork:
             if np.any(np.isnan(net_activity)):
                 net_activity = np.random.uniform(0.01, 0.1, self.N)
                 net_activity = net_activity / np.sum(net_activity)
+            '''
 
             self.network_activity[a, :] = net_activity # save activity for each gain
 
