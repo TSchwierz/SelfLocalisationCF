@@ -125,7 +125,7 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.25):
     return new_direction * magnitude
 
 # ---------------- Main Simulation Loop ----------------
-def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False, noise_scales=(0 , 0)):
+def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False, noise_scales=(0 , 0), angular_std=0.33):
     os.makedirs(f"Results\\ID {ID}", exist_ok=True)
     # Initialize simulation components
     robot = robot_
@@ -177,7 +177,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         
             # Issue a new movement command at defined intervals (after the initial pause)
             if (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
-                movement_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=0.01) # Update direction using a small-angle random walk     
+                movement_direction = update_direction(previous_direction, MOVEMENT_MAGNITUDE, dt, angular_std=angular_std) # Update direction using a small-angle random walk     
                 movement_direction = adjust_for_boundaries(ARENA_BOUNDARIES, position_real, movement_direction) # Adjust the movement to respect arena boundaries
                 previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
                 #print(movement_direction)
@@ -185,15 +185,11 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
             # Controller + Network Update
             position_real, velocity = controller.update(movement_direction)   
             noisy_velocity = velocity + np.random.normal(scale=velocity_noise, size=(3,))
-            activity, pos_internal = mmc.update(velocity*dt)
+            activity, pos_internal = mmc.update(noisy_velocity*dt)
 
             # Noise addition
             noise = np.random.normal(0, neural_noise, np.shape(activity))
-            noisy_activity = np.clip(activity + noise, 0.0, 1.0)
-
-            # learn using noisy position (internal integrator + global gps)
-            # noise_ratio = 1.
-            noisy_position = pos_internal #(noise_ratio*pos_internal + (1.-noise_ratio)*position_real)    
+            noisy_activity = np.clip(activity + noise, 0.0, 1.0) 
 
             # network online prediction
             if (predict_during_simulation):               
@@ -201,7 +197,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
                 predicted_pos_log.append(prediction_pos)
                 prediction_mse_log.append((prediction_pos-position_real)**2)       
  
-                rls.update(noisy_activity, noisy_position) # update using noise
+                rls.update(noisy_activity, pos_internal) # update using noisy activity
 
             # saving values
             velocity_log.append(velocity)
@@ -265,8 +261,10 @@ if __name__ == '__main__':
 
     #INITIAL = [0, 0, 1]
     gains = [0.2, 0.4, 0.6, 0.8, 1.0]
-    id_ = 'MovementCheck3D'
+    id_ = 'FindGains3D'
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=5.0, predict_during_simulation=False)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=10.0,
+       predict_during_simulation=True, noise_scales=(0.05, 0.1), angular_std=0.5)
+    # noise scales = (Neural, Velocity)

@@ -29,6 +29,7 @@ This project aims to implement self localisation using a grid cell model as pres
 
 
 ## Latest Change:
+**12.05.:** Added functionality and mean position confidence range visualisation to the notebook handling results.<br> 
 **08.05.:** Optimised both network and prediction models for faster execution time. Achieved ~4x speed up.<br>
 **07.05.:** Added a fix to the grid network that prevents NaN values to occur. Implementing a analysis routine to compare different sets of gains for the 3D case. <br>
 **06.05.:** Smoothed the movement algorithm. <br>
