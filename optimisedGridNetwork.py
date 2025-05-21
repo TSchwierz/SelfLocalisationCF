@@ -24,7 +24,7 @@ class MixedModularCoder:
         for m in range(M):
             self.Module.append(GridNetwork(nx, ny, gains=gains))
         
-        print('Initialised Mixed Modular Coder')
+        #print('Initialised Mixed Modular Coder')
 
     def set_integrator(self, pos):
         self.pos_integrator = pos.copy()
@@ -157,7 +157,7 @@ class GridNetwork:
         # Final distance matrix
         distance_matrix = diff + best_s
         
-        print('Distance matrix initialized')
+        #print('Distance matrix initialized')
         return distance_matrix
 
     def update_network(self, velocity):

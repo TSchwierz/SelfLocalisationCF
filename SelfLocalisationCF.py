@@ -19,7 +19,7 @@ import numpy as np
 from controller import Robot
 #from controller import Supervisor
 from DroneController import DroneController
-from GridNetwork import MixedModularCoder
+from optimisedGridNetwork import MixedModularCoder
 import PredictionModel
 from datetime import datetime
 import pickle
@@ -27,7 +27,7 @@ from PredictionModel import fit_linear_model
 
 # ---------------- Simulation Parameters ----------------
 FLYING_ATTITUDE = 0              # Base altitude (z-value) for flying
-INITIAL_PAUSE = 6                # Time (in seconds) for the drone to lift off and stabilize
+INITIAL_PAUSE = 30                # Time (in seconds) for the drone to lift off and stabilize
 COMMAND_INTERVAL = 1           # Interval (in seconds) between new movement commands
 COMMAND_TOLERANCE = 0.032        # Tolerance (in seconds) for command timing
 MOVEMENT_MAGNITUDE = 0.25         # Magnitude of the movement vector in the plane
@@ -145,6 +145,8 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     network_states = []
     position_log = []   
     velocity_log = []
+    az_log = []
+    azc_log = []
 
     # For online prediction:
     predicted_pos_log = []
@@ -164,16 +166,19 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         
         # Initial start-up phase (Drone needs to get to stable hover altitude)
         if (elapsed_time < INITIAL_PAUSE):
-            position_real, velocity = controller.update([0,0]) # desired initial position
+            position_real, velocity_gps = controller.update(np.array([0,0])) # desired initial position
+            velocity, az_corrected = controller.get_velocity()
+            #velocity = controller.get_velocity()
+            az = controller.get_az()
 
         # After Initial start-up
         else:
             if(controller.initial_pid):
                 controller.change_gains_pid(kp=0.5, kd=1.0, ki=0.0)
                 mmc.set_integrator(controller.get_location()) # get real position once to set integrator
+                controller.reset_velocity() # sets the velocity integrated by imu sensors to gps derived velocity
                 # Default movement: no change unless a new command is issued at the interval #2d for proper function
-                movement_direction = np.array([0, 0])
-            
+                movement_direction = np.array([0, 0])           
         
             # Issue a new movement command at defined intervals (after the initial pause)
             if (elapsed_time % COMMAND_INTERVAL) <= COMMAND_TOLERANCE:
@@ -182,9 +187,14 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
                 previous_direction = movement_direction  # Use the latest command as the basis for the next direction update
                 #print(movement_direction)
         
-            # Controller + Network Update
-            position_real, velocity = controller.update(movement_direction)   
-            noisy_velocity = velocity + np.random.normal(scale=velocity_noise, size=(3,))
+            # Controller + Network Update         
+            position_real, velocity_gps = controller.update(movement_direction)      
+            velocity, az_corrected = controller.get_velocity()
+            #velocity = controller.get_velocity()
+            az = controller.get_az()
+            #print(f' V_gps = {velocity_gps}\n V_imu = {velocity}\n delta = {velocity_gps - velocity}\n ratio = {(velocity_gps-velocity)/velocity}')
+            #print(' - - - - - ')
+            noisy_velocity = velocity #+ np.random.normal(scale=velocity_noise, size=(3,))
             activity, pos_internal = mmc.update(noisy_velocity*dt)
 
             # Noise addition
@@ -200,11 +210,13 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
                 rls.update(noisy_activity, pos_internal) # update using noisy activity
 
             # saving values
-            velocity_log.append(velocity)
-            position_log.append(position_real)
             integrated_pos_log.append(pos_internal.copy())
             network_states.append(activity)
-        
+        position_log.append(position_real)
+        az_log.append(az)
+        azc_log.append(az_corrected)
+        velocity_log.append(velocity)
+
         # fail save, adjust for actual arena radius size
         if (np.linalg.norm(position_real) > 3*(2.5**2)):
             break
@@ -234,6 +246,8 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         'boundaries' : ARENA_BOUNDARIES,
         'noise' : noise_scales,
         'velocity' : velocity_log,
+        'az' : az_log,
+        'azc' : azc_log,
         'position' : position_log,
         'position internal' : integrated_pos_log,
         'position prediction' : predicted_pos_log,
@@ -261,10 +275,10 @@ if __name__ == '__main__':
 
     #INITIAL = [0, 0, 1]
     gains = [0.2, 0.4, 0.6, 0.8, 1.0]
-    id_ = 'FindGains3D'
+    id_ = 'ImuVelocity'
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=10.0,
-       predict_during_simulation=True, noise_scales=(0.05, 0.1), angular_std=0.5)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=5.0,
+       predict_during_simulation=True, noise_scales=(0.05, 0.05), angular_std=0.35)
     # noise scales = (Neural, Velocity)

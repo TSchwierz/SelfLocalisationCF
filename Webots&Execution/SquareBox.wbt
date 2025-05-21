@@ -32,6 +32,14 @@ Floor {
 }
 DEF Crazyflie Crazyflie {
   controller "<extern>"
+  extensionSlot [
+    InertialUnit {
+      name "imu"
+    }
+    Accelerometer {
+      name "acc"
+    }
+  ]
 }
 DEF Wall Solid {
   children [

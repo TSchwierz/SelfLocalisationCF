@@ -1,4 +1,4 @@
-import numpy as np
+﻿import numpy as np
 from controller import Robot
 from numpy import cos, sin
 
@@ -29,6 +29,7 @@ class DroneController:
         self.robot = robot
         self.pid_controller = PIDVelocityController()
         timestep = int(self.robot.getBasicTimeStep())
+        self.dt = timestep / 1000 # ms to s
         
         # Initialize motors
         self.motors = []
@@ -45,8 +46,11 @@ class DroneController:
         self.gps.enable(timestep)
         self.gyro = self.robot.getDevice("gyro")
         self.gyro.enable(timestep)
+        self.acc = self.robot.getDevice("acc")
+        self.acc.enable(timestep)
         
         # Initialize state variables
+        self.velocity = [0.0, 0.0, 0.0]
         self.past_pos = np.array([0, 0, 0])
         self.past_time = 0.0
         self.hover_altitude = hover_altitude
@@ -54,8 +58,53 @@ class DroneController:
 
         print('DroneController initialized')
 
+    def read_values(self):
+        # Get sensor data
+        self.yaw_rate = self.gyro.getValues()[2]
+        self.gps_values = self.gps.getValues()
+        self.pos_global = np.array(self.gps_values)
+        self.altitude = self.gps_values[2]
+        self.ax, self.ay, self.az = self.acc.getValues()
+        self.roll, self.pitch, self.yaw = self.imu.getRollPitchYaw()
+
+        current_time = self.robot.getTime()
+        self.dt = current_time - self.past_time
+        #print(f'dt is {self.dt}')
+        self.past_time = current_time
+
+    def get_az(self):
+        return self.az
+
     def get_location(self):
         return np.array(self.gps.getValues())
+
+    def reset_velocity(self):
+        gps_velocity = (self.pos_global - self.past_pos) / self.dt  
+        self.velocity = gps_velocity
+        print(f'reset imu velocity integration to {self.velocity}')
+
+    def get_velocity(self):
+        #print(self.az)
+        # Build rotation matrix R_body→world
+        cr = np.cos(self.roll);  sr = np.sin(self.roll)
+        cp = np.cos(self.pitch); sp = np.sin(self.pitch)
+        cy = np.cos(self.yaw);   sy = np.sin(self.yaw)
+        R = [
+          [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],
+          [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],
+          [  -sp,           cp*sr,           cp*cr   ]
+        ]
+        
+        R_transpose = np.array(R).T
+        gravity_body = R_transpose @ np.array([0, 0, 9.81])
+        acc_body_no_gravity = np.array([self.ax, self.ay, self.az]) - gravity_body
+        aw = np.array(R) @ acc_body_no_gravity
+
+        #print(f'az={self.az:.2}, ac_no_g={acc_body_no_gravity[2]:.2}')
+    
+        # Euler Integration: v = v + a * dt
+        self.velocity += (aw * self.dt)
+        return self.velocity.copy(), aw[2]
 
     def change_gains_pid(self, kp = 1.0, kd = 1.4, ki = 0.0):
         self.pid_controller.gains["kp_z"] = kp
@@ -63,56 +112,49 @@ class DroneController:
         self.pid_controller.gains["ki_z"] = ki
         self.initial_pid = False
 
-    def update(self, direction): # Override for 3d movement
+    def update(self, direction): 
         """
         Update the controller based on desired movement and sensor readings.
         
         Args:
-            direction (np.array): Desired 3d direction vector (global frame) for movement.
+            direction (np.array): Desired 3d or 2d direction vector (global frame) for movement.
         
         Returns:
             tuple: (current position (np.array), global velocity (np.array))
-        """
-        # Get sensor data
-        roll, pitch, yaw = self.imu.getRollPitchYaw()
-        yaw_rate = self.gyro.getValues()[2]
-        gps_values = self.gps.getValues()
-        pos_global = np.array(gps_values)
-        altitude = gps_values[2]
+        """        
+        self.read_values()
 
         # check for 2d or 3d input
         if len(direction) == 3 and direction[2]!=0:            
             horizontal_direction = direction[:2]
-            self.hover_altitude = direction[2] + altitude
+            self.hover_altitude = direction[2] + self.altitude
             #print(f'alt change to = {self.hover_altitude}')
         else:
-            horizontal_direction = direction
+            horizontal_direction = direction[:2]
 
         desired_altitude = self.hover_altitude
 
         # Get velocities
-        current_time = self.robot.getTime()
-        dt = current_time - self.past_time
-        rotation_matrix = np.array([[cos(yaw), sin(yaw)],
-                                    [-sin(yaw), cos(yaw)]])
+        rotation_matrix = np.array([[cos(self.yaw), sin(self.yaw)],
+                                    [-sin(self.yaw), cos(self.yaw)]])
 
-        global_velocity = (pos_global - self.past_pos) / dt  
-        vx_body, vy_body = rotation_matrix @ global_velocity[:2] # body-centred current velocity
+        gps_velocity = (self.pos_global - self.past_pos) / self.dt  
+        vx_body, vy_body = rotation_matrix @ gps_velocity[:2] # body-centred current velocity
         
         desired_velocity_body = rotation_matrix @ horizontal_direction
         desired_forward, desired_side = desired_velocity_body  # body centred desired velocity        
 
         # Compute desired yaw based on horizontal direction
-        desired_yaw = yaw
+        desired_yaw = self.yaw
         if np.linalg.norm(horizontal_direction) > 0:
             desired_yaw = np.arctan2(horizontal_direction[1], horizontal_direction[0])       
 
         # Compute motor speeds using the PID controller
         motor_speeds = self.pid_controller.compute(
-            dt,
+            self.dt,
             desired_forward, desired_side, desired_yaw, desired_altitude,
-            roll, pitch, yaw, yaw_rate,
-            altitude, vx_body, vy_body
+            self.roll, self.pitch, self.yaw, self.yaw_rate,
+            self.altitude, vx_body, vy_body
         )
         
         # Reverse motor outputs for motors 1 and 3 for stable lift
@@ -120,7 +162,7 @@ class DroneController:
         motor_speeds[2] *= -1
         
         # Reverse action if Drone is flipped
-        flipped = (abs(roll) > 90) or (abs(pitch) > 90) # check if drone is flipped upside down
+        flipped = (abs(self.roll) > 90) or (abs(self.pitch) > 90) # check if drone is flipped upside down
         if (flipped):
             motor_speeds = [-50, 50, 50, -50] # thurst one side up and other down to turn horizontally 
             print('Drone is flipped, trying to stabilise')
@@ -130,10 +172,9 @@ class DroneController:
             motor.setVelocity(speed)
         
         # Update state
-        self.past_time = current_time
-        self.past_pos = pos_global
+        self.past_pos = self.pos_global
         
-        return pos_global, global_velocity
+        return self.pos_global, gps_velocity
 
 
 class PIDVelocityController:
