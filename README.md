@@ -23,12 +23,15 @@ This project aims to implement self localisation using a grid cell model as pres
 
 
 ## Current Tasks (no particular order):
-1. make a search for the ideal gain modifiers in 3d. Vary the total range and the spacing between gains. 
 1. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
-3. Refine the position prediction algorithm by reducing time spent calculating the covariance matrix.
+2. There is a small systematic error in the velocity as gained through imu sensors and gps sensors. Where does it stem from and how to get rid of it.
+1. Build in a learning limit after which the decoder stops learning and only predicts new positions based on the activity.
+1. Test configurations of the decoder: offline vs online 
+1. What impact does noise have on the model and decoder?
 
 
 ## Latest Change:
+**23.05.:** Introduced velocity aquisition by imu sensors as input for position integration of the model. Fixes of the optimised grid network to produce activity values in the full [0.0, 1.0] range. <br>
 **12.05.:** Added functionality and mean position confidence range visualisation to the notebook handling results.<br> 
 **08.05.:** Optimised both network and prediction models for faster execution time. Achieved ~4x speed up.<br>
 **07.05.:** Added a fix to the grid network that prevents NaN values to occur. Implementing a analysis routine to compare different sets of gains for the 3D case. <br>

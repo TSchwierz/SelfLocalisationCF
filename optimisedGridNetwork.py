@@ -181,7 +181,7 @@ class GridNetwork:
         network_activity_copy = self.network_activity.copy()
         
         # Update all layers at once using JIT-compiled function
-        result = _update_network_jit(
+        result = _update_network_jit_fixed(
             network_activity_copy,
             self.distance_matrix,
             self.gains,
@@ -197,6 +197,73 @@ class GridNetwork:
         
         return result
 
+
+@njit(parallel=True)
+def _update_network_jit_fixed(network_activity, distance_matrix, gains, rotated_velocity, I, T, sigma_squared, tau):
+    """JIT-compiled function with proper range normalization"""
+    n_gains = len(gains)
+    n_neurons = network_activity.shape[1]
+    result = np.zeros_like(network_activity)
+    
+    # Process each gain in parallel
+    for a in prange(n_gains):
+        alpha = gains[a]
+        
+        # Compute weight matrix
+        W = np.zeros((n_neurons, n_neurons))
+        for i in range(n_neurons):
+            for j in range(n_neurons):
+                dx = distance_matrix[i, j, 0] + alpha * rotated_velocity[0]
+                dy = distance_matrix[i, j, 1] + alpha * rotated_velocity[1]
+                dist_squared = dx*dx + dy*dy
+                W[i, j] = I * math.exp(-dist_squared / sigma_squared) - T
+        
+        # Apply weights to current activity
+        b_activity = np.zeros(n_neurons)
+        for i in range(n_neurons):
+            sum_weighted = 0.0
+            for j in range(n_neurons):
+                sum_weighted += network_activity[a, j] * W[i, j]
+            b_activity[i] = sum_weighted
+        
+        # Apply tau normalization
+        sum_activity = 0.0
+        for i in range(n_neurons):
+            sum_activity += network_activity[a, i]
+        
+        epsilon = 1e-10
+        temp_activity = np.zeros(n_neurons)
+        
+        for i in range(n_neurons):
+            net_activity = (1 - tau) * b_activity[i] + tau * (b_activity[i] / (sum_activity + epsilon))
+            if net_activity < 0:
+                net_activity = 0
+            temp_activity[i] = net_activity
+        
+        # RANGE NORMALIZATION: Scale to use full 0-1 range
+        min_val = temp_activity[0]
+        max_val = temp_activity[0]
+        
+        # Find min and max
+        for i in range(1, n_neurons):
+            if temp_activity[i] < min_val:
+                min_val = temp_activity[i]
+            if temp_activity[i] > max_val:
+                max_val = temp_activity[i]
+        
+        # Scale to 0-1 range
+        activity_range = max_val - min_val
+        if activity_range > epsilon:
+            for i in range(n_neurons):
+                result[a, i] = (temp_activity[i] - min_val) / activity_range
+                network_activity[a, i] = result[a, i]
+        else:
+            # If no range, keep current values
+            for i in range(n_neurons):
+                result[a, i] = temp_activity[i]
+                network_activity[a, i] = temp_activity[i]
+    
+    return result
 
 @njit(parallel=True)
 def _update_network_jit(network_activity, distance_matrix, gains, rotated_velocity, I, T, sigma_squared, tau):

@@ -27,7 +27,7 @@ from PredictionModel import fit_linear_model
 
 # ---------------- Simulation Parameters ----------------
 FLYING_ATTITUDE = 0              # Base altitude (z-value) for flying
-INITIAL_PAUSE = 30                # Time (in seconds) for the drone to lift off and stabilize
+INITIAL_PAUSE = 12                # Time (in seconds) for the drone to lift off and stabilize
 COMMAND_INTERVAL = 1           # Interval (in seconds) between new movement commands
 COMMAND_TOLERANCE = 0.032        # Tolerance (in seconds) for command timing
 MOVEMENT_MAGNITUDE = 0.25         # Magnitude of the movement vector in the plane
@@ -279,6 +279,6 @@ if __name__ == '__main__':
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=5.0,
-       predict_during_simulation=True, noise_scales=(0.05, 0.05), angular_std=0.35)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=15.0,
+       predict_during_simulation=True, noise_scales=(0.05, 0.00), angular_std=0.35)
     # noise scales = (Neural, Velocity)
