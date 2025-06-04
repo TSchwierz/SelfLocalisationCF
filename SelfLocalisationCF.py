@@ -26,11 +26,11 @@ import pickle
 from PredictionModel import fit_linear_model
 
 # ---------------- Simulation Parameters ----------------
-FLYING_ATTITUDE = 0              # Base altitude (z-value) for flying
-INITIAL_PAUSE = 12                # Time (in seconds) for the drone to lift off and stabilize
-COMMAND_INTERVAL = 1           # Interval (in seconds) between new movement commands
-COMMAND_TOLERANCE = 0.032        # Tolerance (in seconds) for command timing
-MOVEMENT_MAGNITUDE = 0.25         # Magnitude of the movement vector in the plane
+FLYING_ATTITUDE = 0                 # Base altitude (z-value) for flying
+INITIAL_PAUSE = 12                  # Time (in seconds) for the drone to lift off and stabilize
+COMMAND_INTERVAL = 1                # Interval (in seconds) between new movement commands
+COMMAND_TOLERANCE = 0.032           # Tolerance (in seconds) for command timing
+MOVEMENT_MAGNITUDE = 0.25           # Magnitude of the movement vector in the plane
 ARENA_BOUNDARIES = np.array([[-2.5, 2.5],  # x boundaries
                              [-2.5, 2.5],  # y boundaries
                              [-2.5, 2.5]]) # z boundaries
@@ -133,7 +133,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     dt = timestep_ms / 1000.0  # Convert timestep to seconds   
     controller = DroneController(robot, FLYING_ATTITUDE)
     mmc = MixedModularCoder(gains=gains)
-    rls = PredictionModel.RLSRegressor(mmc.ac_size, num_outputs=3, lambda_=0.999, delta=1e2)
+    rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=3, lambda_=0.999, delta=1e2)
 
     neural_noise, velocity_noise = noise_scales 
     
@@ -145,16 +145,17 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     network_states = []
     position_log = []   
     velocity_log = []
-    az_log = []
-    azc_log = []
+    acceleration_log = []
 
     # For online prediction:
     predicted_pos_log = []
     prediction_mse_log = []
     integrated_pos_log = []
+    last_trained_step = 0
     
     MAX_SIMULATION_TIME = 60 * simulated_minutes # 1min in seconds * amount of hours
-    UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of updates by changing denominator
+    UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of console updates by changing denominator
+    #TRAINING_TIME = (MAX_SIMULATION_TIME*0.8) + INITIAL_PAUSE # in seconds
     print(f'Starting Simulation\nID:{ID}, gains:{gains}')
     # Main loop: run until simulation termination signal or time limit reached
     while robot.step(timestep_ms) != -1 and elapsed_time < MAX_SIMULATION_TIME:
@@ -190,10 +191,6 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
             # Controller + Network Update         
             position_real, velocity_gps = controller.update(movement_direction)      
             velocity, az_corrected = controller.get_velocity()
-            #velocity = controller.get_velocity()
-            az = controller.get_az()
-            #print(f' V_gps = {velocity_gps}\n V_imu = {velocity}\n delta = {velocity_gps - velocity}\n ratio = {(velocity_gps-velocity)/velocity}')
-            #print(' - - - - - ')
             noisy_velocity = velocity #+ np.random.normal(scale=velocity_noise, size=(3,))
             activity, pos_internal = mmc.update(noisy_velocity*dt)
 
@@ -207,14 +204,15 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
                 predicted_pos_log.append(prediction_pos)
                 prediction_mse_log.append((prediction_pos-position_real)**2)       
  
+                #if (elapsed_time <= TRAINING_TIME):
                 rls.update(noisy_activity, pos_internal) # update using noisy activity
+                #    last_trained_step = elapsed_time//dt # index of last training data
 
             # saving values
             integrated_pos_log.append(pos_internal.copy())
             network_states.append(activity)
         position_log.append(position_real)
-        az_log.append(az)
-        azc_log.append(az_corrected)
+        acceleration_log.append(az_corrected)
         velocity_log.append(velocity)
 
         # fail save, adjust for actual arena radius size
@@ -246,8 +244,7 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
         'boundaries' : ARENA_BOUNDARIES,
         'noise' : noise_scales,
         'velocity' : velocity_log,
-        'az' : az_log,
-        'azc' : azc_log,
+        'acceleration' : acceleration_log,
         'position' : position_log,
         'position internal' : integrated_pos_log,
         'position prediction' : predicted_pos_log,
@@ -275,10 +272,10 @@ if __name__ == '__main__':
 
     #INITIAL = [0, 0, 1]
     gains = [0.2, 0.4, 0.6, 0.8, 1.0]
-    id_ = 'ImuVelocity'
+    id_ = 'Benchmarking'
 
     #trans_field.setSFVec3f(INITIAL)
     #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=15.0,
-       predict_during_simulation=True, noise_scales=(0.05, 0.00), angular_std=0.35)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=10.0,
+       predict_during_simulation=True, noise_scales=(0.00, 0.00), angular_std=0.35)
     # noise scales = (Neural, Velocity)
