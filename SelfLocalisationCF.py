@@ -13,6 +13,7 @@ predicts the drone's path using a linear model.
 #from asyncio.windows_events import NULL
 #from multiprocessing.heap import Arena
 import os
+from tkinter import LAST
 #from turtle import position
 #from PIL.Image import ID
 import numpy as np
@@ -24,6 +25,7 @@ import PredictionModel
 from datetime import datetime
 import pickle
 from PredictionModel import fit_linear_model
+import copy
 
 # ---------------- Simulation Parameters ----------------
 FLYING_ATTITUDE = 0                 # Base altitude (z-value) for flying
@@ -125,7 +127,7 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.25):
     return new_direction * magnitude
 
 # ---------------- Main Simulation Loop ----------------
-def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False, noise_scales=(0 , 0), angular_std=0.33):
+def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_scales=(0 , 0), angular_std=0.33):
     os.makedirs(f"Results\\ID {ID}", exist_ok=True)
     # Initialize simulation components
     robot = robot_
@@ -148,14 +150,17 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     acceleration_log = []
 
     # For online prediction:
-    predicted_pos_log = []
-    prediction_mse_log = []
     integrated_pos_log = []
     last_trained_step = 0
+    predicted_pos_log = []
+    prediction_mse_log = []
+    pred_pos_short_log = []
+    pred_mse_short_log = []
     
-    MAX_SIMULATION_TIME = 60 * simulated_minutes # 1min in seconds * amount of hours
+    training_done = False
+    MAX_SIMULATION_TIME = (60 * simulated_minutes) + INITIAL_PAUSE # 1min in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of console updates by changing denominator
-    #TRAINING_TIME = (MAX_SIMULATION_TIME*0.8) + INITIAL_PAUSE # in seconds
+    TRAINING_TIME = (MAX_SIMULATION_TIME*training_fraction) + INITIAL_PAUSE # in seconds
     print(f'Starting Simulation\nID:{ID}, gains:{gains}')
     # Main loop: run until simulation termination signal or time limit reached
     while robot.step(timestep_ms) != -1 and elapsed_time < MAX_SIMULATION_TIME:
@@ -198,15 +203,24 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
             noise = np.random.normal(0, neural_noise, np.shape(activity))
             noisy_activity = np.clip(activity + noise, 0.0, 1.0) 
 
-            # network online prediction
-            if (predict_during_simulation):               
-                prediction_pos = rls.predict(noisy_activity)
-                predicted_pos_log.append(prediction_pos)
-                prediction_mse_log.append((prediction_pos-position_real)**2)       
+            # After training time is reached
+            if (np.abs(TRAINING_TIME-elapsed_time) < COMMAND_TOLERANCE) and not training_done: # Command tolerance is one timestep
+                last_trained_step = int(elapsed_time//dt) #index of last training data
+                print(f'Training ends at {elapsed_time}s, planned at {TRAINING_TIME}s, Index={last_trained_step}')
+                rls_short = copy.deepcopy(rls)
+                training_done = True
+                
+            # network online prediction                        
+            prediction_pos = rls.predict(noisy_activity)
+            rls.update(noisy_activity, pos_internal) # update using noisy activity
+
+            predicted_pos_log.append(prediction_pos)
+            prediction_mse_log.append((prediction_pos-pos_internal)**2)  # was compared to pos_real before     
  
-                #if (elapsed_time <= TRAINING_TIME):
-                rls.update(noisy_activity, pos_internal) # update using noisy activity
-                #    last_trained_step = elapsed_time//dt # index of last training data
+            if (elapsed_time >= TRAINING_TIME): 
+                prediction_short = rls_short.predict(noisy_activity)
+                pred_pos_short_log.append(prediction_short)
+                pred_mse_short_log.append((prediction_short-pos_internal)**2)
 
             # saving values
             integrated_pos_log.append(pos_internal.copy())
@@ -223,40 +237,42 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
     print(f'Simulation finished at {elapsed_time/60:.0f} minutes')
     print(f' - Position log: shape {np.shape(position_log)}, min {np.min(position_log, axis=0)}, max {np.max(position_log, axis=0)}')
     print(f' - Network state: shape {np.shape(network_states)}, min {np.min(network_states)}, max {np.max(network_states)}')
-    print('Calculating prediction...')
-    if (predict_during_simulation):
-        mse_mean = np.mean(prediction_mse_log)
-        mse_shuffeled = 'NaN'
-        r2_mean = 'NaN'
-        r2_shuffeled = 'NaN'
-    else:
-         # Predict the position using a linear model and plot the results
-        X, y, y_pred, mse_mean, mse_shuffeled, r2_mean, r2_shuffeled = fit_linear_model(network_states, position_log, return_shuffled=True)
-        predicted_pos_log = np.array(y_pred)
+    print('Calculating offline prediction...')
+    # Predict the position using a linear model and plot the results
+    X, y, y_pred, mse_mean, mse_shuffeled, r2_mean, r2_shuffeled = fit_linear_model(network_states, integrated_pos_log, return_shuffled=True)
+    Xtrain, Xtest, ytrain, ytest, y_pred_short, mse_mean_short, mse_shuffeled_short, r2_mean_short, r2_shuffeled_short = fit_linear_model(network_states, integrated_pos_log, train_index=last_trained_step, return_shuffled=True)
     print(' - Predicted location data\nSaving data...')
 
     # Save the results of the network
     data = {
-        'online' : predict_during_simulation,
         'name' : ID,
         'sim time' : simulated_minutes,
         'dt ms' : timestep_ms,
         'boundaries' : ARENA_BOUNDARIES,
+        'gains' : gains,
+        'modular projections' : mmc.projected_dim,
+        'module operators' : mmc.A,
         'noise' : noise_scales,
+        'activity' : network_states,
         'velocity' : velocity_log,
         'acceleration' : acceleration_log,
         'position' : position_log,
         'position internal' : integrated_pos_log,
-        'position prediction' : predicted_pos_log,
-        'activity' : network_states,
-        'predicted mse' : prediction_mse_log,
+        'training time index' : last_trained_step,
+        'online prediction' : predicted_pos_log,
+        'online mse' : prediction_mse_log,
+        'online short prediction' : pred_pos_short_log,
+        'online short mse' : pred_mse_short_log,
+        'offline prediction' : np.array(y_pred),
         'mse' : mse_mean,
         'mse_shuffeled' : mse_shuffeled,
         'r2_mean' : r2_mean,
         'r2_shuffeled' : r2_shuffeled,
-        'gains' : gains,
-        'modular projections' : mmc.projected_dim,
-        'module operators' : mmc.A
+        'offline short prediction' : np.array(y_pred_short),
+        'mse short' : mse_mean_short,
+        'mse shuffeled short' : mse_shuffeled_short,
+        'r2 mean short' : r2_mean_short,
+        'r2 shuffeled short' : r2_shuffeled_short       
         }
     filename = f'Data {ID}.pickle'
     save_object(data, f'Results\\ID {ID}\\{filename}')
@@ -266,16 +282,9 @@ def main(ID, gains, robot_, simulated_minutes=1, predict_during_simulation=False
 
 if __name__ == '__main__':
     robot = Robot()
-    #supervisor = Supervisor()
-    #robot_node = supervisor.getFromDef("Crazyflie")
-    #trans_field = robot_node.getField("translation")
-
-    #INITIAL = [0, 0, 1]
     gains = [0.2, 0.4, 0.6, 0.8, 1.0]
-    id_ = 'Benchmarking'
+    id_ = 'BenchmarkingLong'
 
-    #trans_field.setSFVec3f(INITIAL)
-    #robot_node.resetPhysics()
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=10.0,
-       predict_during_simulation=True, noise_scales=(0.00, 0.00), angular_std=0.35)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=30.0,
+       training_fraction=0.8, noise_scales=(0.01, 0.00), angular_std=0.01)
     # noise scales = (Neural, Velocity)

@@ -1,9 +1,5 @@
 ﻿from math import isnan, nan
 import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.model_selection import cross_val_predict, cross_val_score, KFold
-from sklearn.linear_model import Ridge, LinearRegression
-from tqdm import tqdm
 
 class MixedModularCoder:
     def __init__(self, M=2, N=3, gains=[0.1, 0.2, 0.3, 0.4, 0.5]):
@@ -179,46 +175,15 @@ class GridNetwork:
 
             # Calculate activity using transfer function
             b_activity = self.network_activity[a, :]
-            b_activity = b_activity @ W
-                     
-            # FIX 1: Handle potential division by zero in normalization
-            
+            b_activity = b_activity @ W                    
             sum_activity = np.sum(self.network_activity[a, :])
-            '''
-            if sum_activity <= 1e-10:  # If sum is too close to zero
-                # Reinitialize this layer with small positive values
-                self.network_activity[a, :] = np.random.uniform(0.01, 0.1, self.N)
-                sum_activity = np.sum(self.network_activity[a, :])
-                if sum_activity > 0:  # Safety check
-                    self.network_activity[a, :] /= sum_activity
-                continue  # Skip this iteration, try again next time
-            '''
             
-            # FIX 2: Safe normalization with epsilon
+            # Safe normalization with epsilon
             epsilon = 1e-10
             net_activity = ((1 - self.tau) * b_activity + 
                            self.tau * (b_activity / (sum_activity + epsilon)))
-            
-            # FIX 3: Replace any NaN values that might still occur
-            #net_activity = np.nan_to_num(net_activity, nan=0.0, posinf=1.0, neginf=0.0)
 
             net_activity[net_activity < 0] = 0 # turn all negative values to zero
-
-            # FIX 4: Safe normalization of output
-            '''
-            activity_range = np.max(net_activity) - np.min(net_activity)
-            if activity_range > 1e-10:  # Only normalize if there's a meaningful range
-                net_activity = (net_activity - np.min(net_activity)) / activity_range
-            else:
-                # If no range, initialize with small random values
-                net_activity = np.random.uniform(0.01, 0.1, self.N)
-                net_activity = net_activity / np.sum(net_activity)
-            
-            # FIX 5: Final check to ensure no NaNs
-            if np.any(np.isnan(net_activity)):
-                net_activity = np.random.uniform(0.01, 0.1, self.N)
-                net_activity = net_activity / np.sum(net_activity)
-            '''
 
             self.network_activity[a, :] = net_activity # save activity for each gain
 
