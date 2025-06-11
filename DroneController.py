@@ -1,4 +1,5 @@
-﻿import numpy as np
+﻿from asyncio.windows_events import NULL
+import numpy as np
 from controller import Robot
 from numpy import cos, sin
 
@@ -50,6 +51,7 @@ class DroneController:
         self.acc.enable(timestep)
         
         # Initialize state variables
+        self.pos_global = [0.0, 0.0, 0.0]
         self.velocity = [0.0, 0.0, 0.0]
         self.past_pos = np.array([0, 0, 0])
         self.past_time = 0.0
@@ -62,10 +64,13 @@ class DroneController:
         # Get sensor data
         self.yaw_rate = self.gyro.getValues()[2]
         self.gps_values = self.gps.getValues()
-        self.pos_global = np.array(self.gps_values)
         self.altitude = self.gps_values[2]
         self.ax, self.ay, self.az = self.acc.getValues()
         self.roll, self.pitch, self.yaw = self.imu.getRollPitchYaw()
+
+        # Update state
+        self.past_pos = self.pos_global
+        self.pos_global = np.array(self.gps_values)
 
         current_time = self.robot.getTime()
         self.dt = current_time - self.past_time
@@ -101,9 +106,11 @@ class DroneController:
         aw = np.array(R) @ acc_body_no_gravity
 
         #print(f'az={self.az:.2}, ac_no_g={acc_body_no_gravity[2]:.2}')
-    
+       
         # Euler Integration: v = v + a * dt
         self.velocity += (aw * self.dt)
+        z_bias = 6.3e-6  # Empirically estimated drift
+        aw[2] -= z_bias 
         return self.velocity.copy(), aw[2]
 
     def change_gains_pid(self, kp = 1.0, kd = 1.4, ki = 0.0):
@@ -170,9 +177,6 @@ class DroneController:
         # Set motor speeds
         for motor, speed in zip(self.motors, motor_speeds):
             motor.setVelocity(speed)
-        
-        # Update state
-        self.past_pos = self.pos_global
         
         return self.pos_global, gps_velocity
 

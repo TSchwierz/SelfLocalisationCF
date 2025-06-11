@@ -12,6 +12,7 @@ predicts the drone's path using a linear model.
 
 #from asyncio.windows_events import NULL
 #from multiprocessing.heap import Arena
+from base64 import decode
 import os
 from tkinter import LAST
 #from turtle import position
@@ -32,7 +33,7 @@ FLYING_ATTITUDE = 0                 # Base altitude (z-value) for flying
 INITIAL_PAUSE = 12                  # Time (in seconds) for the drone to lift off and stabilize
 COMMAND_INTERVAL = 1                # Interval (in seconds) between new movement commands
 COMMAND_TOLERANCE = 0.032           # Tolerance (in seconds) for command timing
-MOVEMENT_MAGNITUDE = 0.25           # Magnitude of the movement vector in the plane
+MOVEMENT_MAGNITUDE = 0.5           # Magnitude of the movement vector in the plane
 ARENA_BOUNDARIES = np.array([[-2.5, 2.5],  # x boundaries
                              [-2.5, 2.5],  # y boundaries
                              [-2.5, 2.5]]) # z boundaries
@@ -95,7 +96,8 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.25):
     norm_curr = np.linalg.norm(current_direction)
     if norm_curr < 1e-6:
         # If current_direction is near zero, choose a random direction uniformly on the sphere.
-        random_vec = np.random.randn(3)
+        #random_vec = np.random.randn(3)
+        random_vec = np.array([1.0, 0.0, 0.0])
         unit_current = random_vec / np.linalg.norm(random_vec)
     else:
         unit_current = current_direction / norm_curr
@@ -127,7 +129,7 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.25):
     return new_direction * magnitude
 
 # ---------------- Main Simulation Loop ----------------
-def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_scales=(0 , 0), angular_std=0.33):
+def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_scales=(0 , 0), angular_std=0.33, decode_vel=False):
     os.makedirs(f"Results\\ID {ID}", exist_ok=True)
     # Initialize simulation components
     robot = robot_
@@ -135,7 +137,8 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     dt = timestep_ms / 1000.0  # Convert timestep to seconds   
     controller = DroneController(robot, FLYING_ATTITUDE)
     mmc = MixedModularCoder(gains=gains)
-    rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=3, lambda_=0.999, delta=1e2)
+    rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=(6 if decode_vel else 3) , lambda_=0.999, delta=1e2)
+    #rls = PredictionModel.RLSRegressorWithTracking(mmc.ac_size, num_outputs=3)
 
     neural_noise, velocity_noise = noise_scales 
     
@@ -156,6 +159,8 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     prediction_mse_log = []
     pred_pos_short_log = []
     pred_mse_short_log = []
+    pred_vel_log = []
+    pred_vel_short_log = []
     
     training_done = False
     MAX_SIMULATION_TIME = (60 * simulated_minutes) + INITIAL_PAUSE # 1min in seconds * amount of hours
@@ -174,8 +179,6 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
         if (elapsed_time < INITIAL_PAUSE):
             position_real, velocity_gps = controller.update(np.array([0,0])) # desired initial position
             velocity, az_corrected = controller.get_velocity()
-            #velocity = controller.get_velocity()
-            az = controller.get_az()
 
         # After Initial start-up
         else:
@@ -194,8 +197,9 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
                 #print(movement_direction)
         
             # Controller + Network Update         
-            position_real, velocity_gps = controller.update(movement_direction)      
+            position_real, velocity_gps = controller.update(movement_direction[:2])      
             velocity, az_corrected = controller.get_velocity()
+            #velocity = velocity - 0.00005 # noise correction ?
             noisy_velocity = velocity #+ np.random.normal(scale=velocity_noise, size=(3,))
             activity, pos_internal = mmc.update(noisy_velocity*dt)
 
@@ -211,16 +215,25 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
                 training_done = True
                 
             # network online prediction                        
-            prediction_pos = rls.predict(noisy_activity)
-            rls.update(noisy_activity, pos_internal) # update using noisy activity
+            prediction = rls.predict(noisy_activity)
+            if (decode_vel):
+                prediction_pos = prediction[:3]
+                prediction_vel = prediction[3:]
+            else:
+                prediction_pos = prediction
+                prediction_vel = np.zeros(3)
+            rls.update(noisy_activity, (np.array([pos_internal, velocity]) if decode_vel else pos_internal) ) 
 
             predicted_pos_log.append(prediction_pos)
-            prediction_mse_log.append((prediction_pos-pos_internal)**2)  # was compared to pos_real before     
+            prediction_mse_log.append(np.sum((prediction_pos-pos_internal)**2)/len(pos_internal))  # was compared to pos_real before
+            pred_vel_log.append(prediction_vel)
  
             if (elapsed_time >= TRAINING_TIME): 
                 prediction_short = rls_short.predict(noisy_activity)
-                pred_pos_short_log.append(prediction_short)
-                pred_mse_short_log.append((prediction_short-pos_internal)**2)
+                pred_pos_short_log.append(prediction_short[:3])
+                if (decode_vel):
+                    pred_vel_short_log.append(prediction_short[3:])
+                pred_mse_short_log.append(np.sum((prediction_short[:3]-pos_internal)**2)/len(pos_internal))
 
             # saving values
             integrated_pos_log.append(pos_internal.copy())
@@ -272,7 +285,10 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
         'mse short' : mse_mean_short,
         'mse shuffeled short' : mse_shuffeled_short,
         'r2 mean short' : r2_mean_short,
-        'r2 shuffeled short' : r2_shuffeled_short       
+        'r2 shuffeled short' : r2_shuffeled_short,
+        'rls convergence matrix' : rls.convergence_metrics.copy(),
+        'online vel prediction' : pred_vel_log,
+        'online vel short predition' : pred_vel_short_log
         }
     filename = f'Data {ID}.pickle'
     save_object(data, f'Results\\ID {ID}\\{filename}')
@@ -283,8 +299,8 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
 if __name__ == '__main__':
     robot = Robot()
     gains = [0.2, 0.4, 0.6, 0.8, 1.0]
-    id_ = 'BenchmarkingLong'
+    id_ = 'Benchmarking1DVel'
 
-    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=30.0,
-       training_fraction=0.8, noise_scales=(0.01, 0.00), angular_std=0.01)
+    main(ID=id_, gains=gains, robot_=robot, simulated_minutes=10.0,
+       training_fraction=0.8, noise_scales=(0.01, 0.00), angular_std=0.00, decode_vel=True)
     # noise scales = (Neural, Velocity)

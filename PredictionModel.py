@@ -100,72 +100,7 @@ def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=Fals
             
             return X_train, X_test, y_train, y_test, y_pred_test, mse_test, mse_test_shuffled, r2_test, r2_test_shuffled
 
-class RLSRegressor:
-    def __init__(self, num_features, num_outputs=2, lambda_=0.99, delta=1e5):
-        """
-        Initializes the RLS regressor.
-        
-        Parameters:
-        num_features (int): Number of features (e.g., 540 or reduced dimension of activity).
-        num_outputs (int): Number of outputs (e.g., 2 for a 2D position).
-        lambda_ (float): Forgetting factor (0 < lambda_ <= 1). Closer to 1 means slow forgetting.
-        delta (float): Initial scaling factor for the inverse covariance matrix.
-        """
-        self.num_features = num_features
-        self.num_outputs = num_outputs
-        self.lambda_ = lambda_
-        # Weight matrix (mapping from features to outputs), shape: (num_features, num_outputs)
-        self.A = np.zeros((num_features, num_outputs))
-        # Inverse covariance matrix, initialized as a large multiple of the identity matrix.
-        self.P = np.eye(num_features) * delta
-        self.eps = 1e-5 # small constant to mitigate blow up in covariance matrix
-
-    def update(self, y, x):
-        """
-        Update the regression weights using a new data pair.
-        
-        Parameters:
-        y (np.ndarray): Input feature vector (neural activity) of shape (num_features,).
-        x (np.ndarray): Target output (e.g., 2D position) of shape (num_outputs,).
-        
-        Returns:
-        np.ndarray: Updated weight matrix.
-        """
-        # Ensure column vector format for phi and d
-        y = y.reshape(-1, 1)  # shape: (num_features, 1)
-        x = x.reshape(-1, 1)      # shape: (num_outputs, 1)
-
-        # Compute the denominator (a scalar)
-        denom = self.lambda_ + np.dot(y.T, np.dot(self.P, y)) + self.eps
-
-        # Compute the gain vector (shape: num_features x 1)
-        K = np.dot(self.P, y) / denom
-
-        # Compute the prediction error (innovation) (shape: num_outputs x 1)
-        error = x - np.dot(self.A.T, y)
-
-        # Update the weight matrix; K (num_features x 1) multiplied by error.T (1 x num_outputs)
-        self.A = self.A + np.dot(K, error.T)
-
-        # Update the inverse covariance matrix
-        self.P = (self.P - np.dot(K, np.dot(y.T, self.P))) / self.lambda_
-        return self.A
-
-    def predict(self, y):
-        """
-        Predict the output given a new feature vector.
-        
-        Parameters:
-        y (np.ndarray): Input feature vector of shape (num_features,).
-        
-        Returns:
-        np.ndarray: Predicted output (e.g., 2D position).
-        """
-        y = y.reshape(-1, 1)
-        x_est = np.dot(self.A.T, y)
-        return x_est.flatten()
-
-# ---------------- Optimised --------------------------------
+# ---------------- Optimised RLS --------------------------------
 class OptimisedRLS:
     def __init__(self, num_features, num_outputs, lambda_=0.99, delta=1.0, eps=1e-10):
         """
@@ -193,6 +128,19 @@ class OptimisedRLS:
         self._K = np.zeros((num_features, 1))
         self._error = np.zeros((num_outputs, 1))
         self._KyTP = np.zeros((num_features, num_features))
+
+        # Convergence tracking
+        self.convergence_metrics = {
+            'weight_changes': [],
+            'weight_norms': [],
+            'prediction_errors': [],
+            'gain_norms': [],
+            'innovation_norms': [],
+            'timestamps': []
+        }
+        
+        self._prev_A = self.A.copy()
+        self._update_count = 0
         
     def update(self, y, x):
         """
@@ -208,6 +156,8 @@ class OptimisedRLS:
         # Ensure column vector format
         y_col = y.reshape(-1, 1)  # shape: (num_features, 1)
         x_col = x.reshape(-1, 1)  # shape: (num_outputs, 1)
+
+        self._update_count+=1
         
         # Reuse pre-allocated arrays
         np.dot(self.P, y_col, out=self._Py)
@@ -220,15 +170,34 @@ class OptimisedRLS:
         # Compute prediction error
         np.dot(self.A.T, y_col, out=self._error)
         np.subtract(x_col, self._error, out=self._error)
+
+         # Track convergence metrics before update
+        if self._update_count > 1:
+            weight_change = np.linalg.norm(self.A - self._prev_A, 'fro')
+            pred_error = np.mean(self._error ** 2)
+            innovation_norm = np.linalg.norm(self._error)
+
+            self.convergence_metrics['weight_changes'].append(weight_change)           
+            self.convergence_metrics['prediction_errors'].append(pred_error)           
+            self.convergence_metrics['innovation_norms'].append(innovation_norm)
+        
+        # Store previous weights
+        self._prev_A = self.A.copy()
         
         # Update weights
         self.A += np.dot(self._K, self._error.T)
-        
+
+        # Track post-update metrics
+        weight_norm = np.linalg.norm(self.A, 'fro')
+        gain_norm = np.linalg.norm(self._K)
+        self.convergence_metrics['weight_norms'].append(weight_norm)
+        self.convergence_metrics['gain_norms'].append(gain_norm)
+              
         # Update inverse correlation matrix
         np.dot(self._K, np.dot(y_col.T, self.P), out=self._KyTP)
         np.subtract(self.P, self._KyTP, out=self.P)
         np.divide(self.P, self.lambda_, out=self.P)
-        
+       
         return self.A
 
     def predict(self, y):
@@ -244,91 +213,3 @@ class OptimisedRLS:
         y = y.reshape(-1, 1)
         x_est = np.dot(self.A.T, y)
         return x_est.flatten()
-
-# ---- RLS with Tracking ------
-class RLSRegressorWithTracking:
-    def __init__(self, num_features, num_outputs=2, lambda_=0.99, delta=1e5):
-        """Enhanced RLS with weight correction tracking"""
-        self.num_features = num_features
-        self.num_outputs = num_outputs
-        self.lambda_ = lambda_
-        self.A = np.zeros((num_features, num_outputs))
-        self.P = np.eye(num_features) * delta
-        self.eps = 1e-5
-        
-        # Tracking arrays
-        self.weight_corrections = []
-        self.weight_norms = []
-        self.prediction_errors = []
-        self.time_step = 0
-
-    def update(self, y, x):
-        """Update with tracking of weight corrections"""
-        # Store previous weights
-        A_prev = self.A.copy()
-        
-        # Standard RLS update
-        y = y.reshape(-1, 1)
-        x = x.reshape(-1, 1)
-        
-        denom = self.lambda_ + np.dot(y.T, np.dot(self.P, y)) + self.eps
-        K = np.dot(self.P, y) / denom
-        error = x - np.dot(self.A.T, y)
-        self.A = self.A + np.dot(K, error.T)
-        self.P = (self.P - np.dot(K, np.dot(y.T, self.P))) / self.lambda_
-        
-        # Track metrics
-        weight_correction = np.linalg.norm(self.A - A_prev, 'fro')
-        weight_norm = np.linalg.norm(self.A, 'fro')
-        prediction_error = np.linalg.norm(error)
-        
-        self.weight_corrections.append(weight_correction)
-        self.weight_norms.append(weight_norm)
-        self.prediction_errors.append(prediction_error)
-        self.time_step += 1
-        
-        return self.A
-
-    def predict(self, y):
-        """Standard prediction"""
-        y = y.reshape(-1, 1)
-        x_est = np.dot(self.A.T, y)
-        return x_est.flatten()
-    
-    def get_convergence_metrics(self):
-        """Return convergence analysis metrics"""
-        corrections = np.array(self.weight_corrections)
-        norms = np.array(self.weight_norms)
-        errors = np.array(self.prediction_errors)
-        
-        return {
-            'weight_corrections': corrections,
-            'weight_norms': norms,
-            'prediction_errors': errors,
-            'convergence_rate': self._estimate_convergence_rate(corrections),
-            'final_correction_mean': np.mean(corrections[-100:]) if len(corrections) > 100 else np.mean(corrections),
-            'correction_trend': self._compute_trend(corrections)
-        }
-    
-    def _estimate_convergence_rate(self, corrections, window=100):
-        """Estimate convergence rate from recent corrections"""
-        if len(corrections) < window:
-            return None
-        recent_corrections = corrections[-window:]
-        # Fit exponential decay: y = a * exp(-b*x)
-        x = np.arange(len(recent_corrections))
-        try:
-            log_corrections = np.log(recent_corrections + 1e-10)
-            coeffs = np.polyfit(x, log_corrections, 1)
-            return -coeffs[0]  # Negative of slope gives convergence rate
-        except:
-            return None
-    
-    def _compute_trend(self, corrections, window=50):
-        """Compute trend in recent corrections"""
-        if len(corrections) < window:
-            return 0
-        recent = corrections[-window:]
-        x = np.arange(len(recent))
-        slope = np.polyfit(x, recent, 1)[0]
-        return slope
