@@ -3,13 +3,14 @@ from numba import njit, prange
 import math
 
 class MixedModularCoder:
-    def __init__(self, M=2, N=3, gains=[0.1, 0.2, 0.3, 0.4, 0.5]):
+    def __init__(self, M=3, N=3, gains=[0.1, 0.2, 0.3, 0.4, 0.5]):
         # Fixed projection assignment matrix
         self.A = np.array([
             [[1, 0, 0], [0,1,0]],
-            [[0,1,0], [0,0,1]]
+            [[0,1,0], [0,0,1]],
+            [[1,0,0], [0,0,1]]
         ])
-        # Boolean mask for each m stating the dimension it projects
+        # Boolean mask for each m stating the dimensions it projects to
         self.projected_dim = np.any(self.A != 0, axis=1)
 
         nx = 10
