@@ -98,7 +98,7 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.25):
     if norm_curr < 1e-6:
         # If current_direction is near zero, choose a random direction uniformly on the sphere.
         #random_vec = np.random.randn(3)
-        random_vec = np.array([1.0, 0.0, 0.0])
+        random_vec = np.array([1.0, 1.0, 1.0])
         unit_current = random_vec / np.linalg.norm(random_vec)
     else:
         unit_current = current_direction / norm_curr
@@ -300,11 +300,11 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     metrics = {
         'online mse' : prediction_mse_log,
         'online short mse' : pred_mse_short_log,
-        'mse' : mse_mean,
-        'mse_shuffeled' : mse_shuffeled,
+        'offline mse' : mse_mean,
+        'offline mse short' : mse_mean_short,
+        'mse shuffeled' : mse_shuffeled,
         'r2_mean' : r2_mean,
         'r2_shuffeled' : r2_shuffeled,
-        'mse short' : mse_mean_short,
         'mse shuffeled short' : mse_shuffeled_short,
         'r2 mean short' : r2_mean_short,
         'r2 shuffeled short' : r2_shuffeled_short
@@ -316,30 +316,38 @@ if __name__ == '__main__':
     supervisor = Supervisor()
     robot_node = supervisor.getFromDef("Crazyflie")
     trans_field = robot_node.getField("translation")
-    INITIAL = [0, 0, 1]
+    INITIAL = [0, 0, 0]
 
     trial_per_setting = 10
     gains = [0.2, 0.5, 0.7, 1.0]
-    id_ = 'Benchmarking 10 Trials'
-    data_all = []
 
-    results_dir = f"Results\\ID {id_}"
-    os.makedirs(results_dir, exist_ok=True)
+    noise = [0.01, 0.05, 0.1, 0.2, 0.25]
 
-    for trial in range(trial_per_setting):
-        trans_field.setSFVec3f(INITIAL)
-        robot_node.resetPhysics()
-        data = main(ID=f'trial{trial}', gains=gains, robot_=robot, simulated_minutes=10.0,
-           training_fraction=0.8, noise_scales=(0.01, 0.00), angular_std=0.00, decode_vel=True,
-          results_dir=results_dir)
-        # noise scales = (Neural, Velocity)
+    for i, nnoise in enumerate(noise):
+        print(f'Running {trial_per_setting} trials for setting {i+1}/{len(noise)}')
+        id_ = f'BenchmarkNoise {i+1} of {trial_per_setting}Trials'
+        data_all = []
 
-    summary = {}
-    for key in data_all[0].keys():
-        # stack along new axis and average
-        vals = [m[key] for m in data_all]
-        summary[f'avg_{key}'] = np.mean(vals, axis=0)
+        results_dir = f"Results\\ID {id_}"
+        os.makedirs(results_dir, exist_ok=True)
 
-    save_object(summary, f'{results_dir}\\summary.pickle')
+        for trial in range(trial_per_setting):
+            trans_field.setSFVec3f(INITIAL)
+            robot_node.resetPhysics()
+            data = main(ID=f'trial{trial}', gains=gains, robot_=robot, simulated_minutes=5.0,
+               training_fraction=0.8, noise_scales=(0.01, 0.00), angular_std=0.01, decode_vel=True,
+              results_dir=results_dir)
+            data_all.append(data)
+            # noise scales = (Neural, Velocity)
 
-    print(f"\n→ All trials done. Summary saved to {results_dir}\\Summary.pickle")
+        summary = {}
+        for key in data_all[0].keys():
+            # stack along new axis and average
+            vals = [m[key] for m in data_all]
+            summary[f'avg {key}'] = np.mean(vals)
+            summary[f'std {key}'] = np.std(vals)
+
+        save_object(summary, f'{results_dir}\\summary.pickle')
+
+        print(f"\n→ All trials done. Summary saved to {results_dir}\\Summary.pickle")
+    print("Finished all settings. Completed execution.")
