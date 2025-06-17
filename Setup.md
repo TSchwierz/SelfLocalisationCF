@@ -5,6 +5,7 @@ This project and tutorial have been written with a Windows 10 implementation in 
 Under https://cyberbotics.com you can download the latest release of webots, a simulation environment to work on robotics.
 
 Once it is installed and opened, navigate to File/Open World and select the world file 'SquareBox.wbt' that is part of this repository in the "Webots&Execution" folder. 
+_Note:_ for some instances of the project, such as when benchmarking results over multiple trials, it is necessary to run the crazyflie in supervisor mode. To enable it navigate to the worldview in webots and select the crazylfie instance from the menu bar on the left. There should be a property called 'supervisor' that can be changed by (un)checking the selection box.
 ## Environmental Path Variables
 In order to run the project, the crazyflie drone in webots needs to be targeted by an external controller, a Python script in this case. This can be done by passing the script to the webots-controller executable in the cmd.
 ```
