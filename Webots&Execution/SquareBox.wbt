@@ -32,6 +32,7 @@ Floor {
 }
 DEF Crazyflie Crazyflie {
   controller "<extern>"
+  supervisor TRUE
   extensionSlot [
     InertialUnit {
       name "imu"

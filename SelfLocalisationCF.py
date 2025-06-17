@@ -250,8 +250,6 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     
     # ---------------- End of Simulation ----------------
     print(f'Simulation finished at {elapsed_time/60:.0f} minutes')
-    print(f' - Position log: shape {np.shape(position_log)}, min {np.min(position_log, axis=0)}, max {np.max(position_log, axis=0)}')
-    print(f' - Network state: shape {np.shape(network_states)}, min {np.min(network_states)}, max {np.max(network_states)}')
     print('Calculating offline prediction...')
     # Predict the position using a linear model and plot the results
     X, y, y_pred, mse_mean, mse_shuffeled, r2_mean, r2_shuffeled = fit_linear_model(network_states, integrated_pos_log, return_shuffled=True)
@@ -318,14 +316,14 @@ if __name__ == '__main__':
     trans_field = robot_node.getField("translation")
     INITIAL = [0, 0, 0]
 
-    trial_per_setting = 10
+    trial_per_setting = 20
     gains = [0.2, 0.5, 0.7, 1.0]
 
-    noise = [0.01, 0.05, 0.1, 0.2, 0.25]
+    noise = [0.01, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35]
 
     for i, nnoise in enumerate(noise):
         print(f'Running {trial_per_setting} trials for setting {i+1}/{len(noise)}')
-        id_ = f'BenchmarkNoise {i+1} of {trial_per_setting}Trials'
+        id_ = f'BenchmarkNoise {i+1} of {len(noise)}Trials'
         data_all = []
 
         results_dir = f"Results\\ID {id_}"
@@ -347,6 +345,7 @@ if __name__ == '__main__':
             summary[f'avg {key}'] = np.mean(vals)
             summary[f'std {key}'] = np.std(vals)
 
+        summary['setting'] = noise
         save_object(summary, f'{results_dir}\\summary.pickle')
 
         print(f"\n→ All trials done. Summary saved to {results_dir}\\Summary.pickle")
