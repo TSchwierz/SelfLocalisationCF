@@ -41,6 +41,56 @@ ARENA_BOUNDARIES = np.array([[-1, 1],  # x boundaries
 
 
 # ---------------- Helper Functions ----------------
+def visited_volume_percentages(trajectory, bounds, voxel_size=0.05, t=-1):
+    """
+    Compute the covered‐volume percentages for a 3D trajectory in a box.
+    
+    Parameters
+    ----------
+    trajectory : ndarray, shape (T, 3)
+        Sequence of (x,y,z) points.
+    bounds : tuple of floats
+        (xmin, xmax, ymin, ymax, zmin, zmax).
+    voxel_size : float
+        Edge length of each cubic voxel.
+    t : int
+        Time‐index (0-based) up to which to report the partial coverage.
+    
+    Returns
+    -------
+    pct_up_to_t : float
+        Percentage of box‐volume visited at least once in timesteps [0..t].
+    pct_total : float
+        Percentage of box‐volume visited at least once in the entire trajectory.
+    """
+    xmin, xmax, ymin, ymax, zmin, zmax = bounds
+    
+    # number of voxels along each axis
+    nx = int(np.floor((xmax - xmin) / voxel_size)) + 1
+    ny = int(np.floor((ymax - ymin) / voxel_size)) + 1
+    nz = int(np.floor((zmax - zmin) / voxel_size)) + 1
+    total_voxels = nx * ny * nz
+
+    # map coords → integer voxel indices and clamp in [0, n-1]
+    # shape (T,3) → (T,) linear indices
+    scaled = (trajectory - np.array([xmin, ymin, zmin])) / voxel_size
+    ijk = np.floor(scaled).astype(int)
+    # clamp out-of-bounds points
+    ijk[:,0] = np.clip(ijk[:,0], 0, nx-1)
+    ijk[:,1] = np.clip(ijk[:,1], 0, ny-1)
+    ijk[:,2] = np.clip(ijk[:,2], 0, nz-1)
+    lin_idx = ijk[:,0] * (ny*nz) + ijk[:,1] * nz + ijk[:,2]
+
+    # unique counts via np.unique
+    unique_all = np.unique(lin_idx)
+    unique_t   = np.unique(lin_idx[:t+1])
+
+    pct_up_to_t = unique_t.size   / total_voxels * 100.0
+    pct_total   = unique_all.size / total_voxels * 100.0
+
+    return pct_up_to_t, pct_total
+
+
 def save_object(obj, fname='data.pickle'):
     '''
     saves a python object to a file using the built-in pickle library
@@ -239,7 +289,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
 
             # saving values
             integrated_pos_log.append(pos_internal.copy())
-            network_states.append(activity)
+            network_states.append(noisy_activity)
         position_log.append(position_real)
         acceleration_log.append(az_corrected)
         velocity_log.append(velocity)
@@ -294,6 +344,8 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     save_object(data, f'{results_dir}\\{filename}')
     print(f' - Saved Data as {filename}')
     
+    train_perc, total_perc = visited_volume_percentages(integrated_pos_log, ARENA_BOUNDARIES, t=last_trained_step)
+
     print(f'Finished execution of ID {ID}')
     metrics = {
         'online mse' : prediction_mse_log,
@@ -305,7 +357,9 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
         'r2_shuffeled' : r2_shuffeled,
         'mse shuffeled short' : mse_shuffeled_short,
         'r2 mean short' : r2_mean_short,
-        'r2 shuffeled short' : r2_shuffeled_short
+        'r2 shuffeled short' : r2_shuffeled_short,
+        'coverage' : total_perc,
+        'coverage train' : train_perc,
     }
     return metrics
 
@@ -319,11 +373,13 @@ if __name__ == '__main__':
     trial_per_setting = 20
     gains = [0.2, 0.5, 0.7, 1.0]
 
-    noise = [0.01, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35]
+    noise = [0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.99] #0.05 * np.ones(len(times)) 
+    times = 5.0 * np.ones(len(noise)) #[5.0, 7.5, 10.0, 15.0, 20.0, 30.0]
+    setting = noise
 
-    for i, nnoise in enumerate(noise):
-        print(f'Running {trial_per_setting} trials for setting {i+1}/{len(noise)}')
-        id_ = f'BenchmarkNoise {i+1} of {len(noise)}Trials'
+    for i, var in enumerate(setting):
+        print(f'Running {trial_per_setting} trials for setting {i+1}/{len(setting)}')
+        id_ = f'BenchmarkNoise setting{i+1}of{len(setting)}'
         data_all = []
 
         results_dir = f"Results\\ID {id_}"
@@ -332,8 +388,8 @@ if __name__ == '__main__':
         for trial in range(trial_per_setting):
             trans_field.setSFVec3f(INITIAL)
             robot_node.resetPhysics()
-            data = main(ID=f'trial{trial}', gains=gains, robot_=robot, simulated_minutes=5.0,
-               training_fraction=0.8, noise_scales=(0.01, 0.00), angular_std=0.01, decode_vel=True,
+            data = main(ID=f'trial{trial}', gains=gains, robot_=robot, simulated_minutes=times[i],
+               training_fraction=0.8, noise_scales=(noise[i], 0.00), angular_std=0.33, decode_vel=False,
               results_dir=results_dir)
             data_all.append(data)
             # noise scales = (Neural, Velocity)
@@ -345,7 +401,8 @@ if __name__ == '__main__':
             summary[f'avg {key}'] = np.mean(vals)
             summary[f'std {key}'] = np.std(vals)
 
-        summary['setting'] = noise
+        summary['setting var'] = setting
+        summary['setting mode'] = 'noise'
         save_object(summary, f'{results_dir}\\summary.pickle')
 
         print(f"\n→ All trials done. Summary saved to {results_dir}\\Summary.pickle")
