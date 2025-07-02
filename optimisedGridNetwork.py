@@ -3,13 +3,14 @@ from numba import njit, prange
 import math
 
 class MixedModularCoder:
-    def __init__(self, M=3, N=3, gains=[0.1, 0.2, 0.3, 0.4, 0.5]):
+    def __init__(self, M=3, N=2, gains=[0.1, 0.2, 0.3, 0.4, 0.5]):
         # Fixed projection assignment matrix
         self.A = np.array([
             [[1, 0, 0], [0,1,0]],
             [[0,1,0], [0,0,1]],
             [[1,0,0], [0,0,1]]
         ])
+        #self.A = np.array([[[1, 0], [0, 1]]])
         # Boolean mask for each m stating the dimensions it projects to
         self.projected_dim = np.any(self.A != 0, axis=1)
 
@@ -34,8 +35,10 @@ class MixedModularCoder:
         # Pre-allocate activity array
         activity = np.zeros((self.M, self.nrGains, self.mod_size//self.nrGains))
         
-        # Project velocity once
-        vel2D = self.project_velocity(velocity)
+        if np.ndim(velocity) == 2:
+            vel2D = velocity       
+        else:
+            vel2D = self.project_velocity(velocity)
         
         # Update each module
         for i, m in enumerate(self.Module):

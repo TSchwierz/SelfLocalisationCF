@@ -41,6 +41,56 @@ ARENA_BOUNDARIES = np.array([[-1, 1],  # x boundaries
 
 
 # ---------------- Helper Functions ----------------
+def visited_area_percentages(trajectory, bounds, voxel_size=0.05, t=-1):
+    """
+    Compute the covered-area percentages for a 2D trajectory in a rectangle.
+    
+    Parameters
+    ----------
+    trajectory : ndarray, shape (T, 2)
+        Sequence of (x,y) points.
+    bounds : tuple of floats
+        (xmin, xmax, ymin, ymax).
+    voxel_size : float
+        Edge length of each square voxel (pixel).
+    t : int
+        Time-index (0-based) up to which to report the partial coverage.
+    
+    Returns
+    -------
+    pct_up_to_t : float
+        Percentage of rectangle area visited at least once in timesteps [0..t].
+    pct_total : float
+        Percentage of rectangle area visited at least once in the entire trajectory.
+    """
+    xmin, xmax, ymin, ymax = bounds
+    
+    # number of voxels along each axis
+    nx = int(np.floor((xmax - xmin) / voxel_size)) + 1
+    ny = int(np.floor((ymax - ymin) / voxel_size)) + 1
+    total_voxels = nx * ny
+    
+    # map coords → integer voxel indices and clamp in [0, n-1]
+    # shape (T,2) → (T,) linear indices
+    scaled = (trajectory - np.array([xmin, ymin])) / voxel_size
+    ij = np.floor(scaled).astype(int)
+    
+    # clamp out-of-bounds points
+    ij[:,0] = np.clip(ij[:,0], 0, nx-1)
+    ij[:,1] = np.clip(ij[:,1], 0, ny-1)
+    
+    # convert 2D indices to linear indices
+    lin_idx = ij[:,0] * ny + ij[:,1]
+    
+    # unique counts via np.unique
+    unique_all = np.unique(lin_idx)
+    unique_t   = np.unique(lin_idx[:t+1])
+    
+    pct_up_to_t = unique_t.size   / total_voxels * 100.0
+    pct_total   = unique_all.size / total_voxels * 100.0
+    
+    return pct_up_to_t, pct_total
+
 def visited_volume_percentages(trajectory, bounds, voxel_size=0.05, t=-1):
     """
     Compute the covered‐volume percentages for a 3D trajectory in a box.
@@ -189,7 +239,8 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     dt = timestep_ms / 1000.0  # Convert timestep to seconds   
     controller = DroneController(robot, FLYING_ATTITUDE)
     mmc = MixedModularCoder(gains=gains)
-    rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=(6 if decode_vel else 3) , lambda_=0.999, delta=1e2)
+    '''                                                         (6 if decode_vel else 3)'''
+    rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=(6 if decode_vel else 3)  , lambda_=0.999, delta=1e2)
     #rls = PredictionModel.RLSRegressorWithTracking(mmc.ac_size, num_outputs=3)
 
     neural_noise, velocity_noise = noise_scales 
@@ -249,7 +300,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
                 #print(movement_direction)
         
             # Controller + Network Update         
-            position_real, velocity_gps = controller.update(movement_direction)      
+            position_real, velocity_gps = controller.update(movement_direction) 
             velocity, az_corrected = controller.get_velocity()
             #velocity = velocity - 0.00005 # noise correction ?
             noisy_velocity = velocity #+ np.random.normal(scale=velocity_noise, size=(3,))
@@ -345,6 +396,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     print(f' - Saved Data as {filename}')
     
     train_perc, total_perc = visited_volume_percentages(integrated_pos_log, ARENA_BOUNDARIES.flatten(), t=last_trained_step)
+    #train_perc, total_perc = visited_area_percentages(integrated_pos_log, ARENA_BOUNDARIES.flatten()[:4], t=last_trained_step)
 
     print(f'Finished execution of ID {ID}')
     metrics = {
@@ -374,13 +426,13 @@ if __name__ == '__main__':
     gains = [0.2, 0.4, 0.6, 0.8, 1.0]
 
     
-    times = [30.0] #[5.0, 7.5, 10.0, 15.0, 20.0, 30.0] #5.0 * np.ones(len(noise)) 
+    times = [5.0] #[5.0, 7.5, 10.0, 15.0, 20.0, 30.0] #5.0 * np.ones(len(noise)) 
     noise = 0.2 * np.ones(len(times)) #[0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.99] #
     setting = times
 
     for i, var in enumerate(setting):
-        print(f'Running {trial_per_setting} trials for setting {i+1+5}/6')#'{len(setting)}')
-        id_ = f'BenchmarkTime setting{i+1+5}of6'#'{len(setting)}'
+        print(f'Running {trial_per_setting} trials for setting {i+1+5}/{len(setting)}')#'')
+        id_ = f'Benchmark 3D setting{i+1}of{len(setting)}'#'{len(setting)}'
         data_all = []
 
         results_dir = f"Results\\ID {id_}"
@@ -401,6 +453,7 @@ if __name__ == '__main__':
             vals = [m[key] for m in data_all]
             summary[f'avg {key}'] = np.mean(vals)
             summary[f'std {key}'] = np.std(vals)
+            summary[f'per {key}'] = np.percentile(vals, [25, 75])
 
         summary['setting var'] = setting
         summary['setting mode'] = 'Time'
