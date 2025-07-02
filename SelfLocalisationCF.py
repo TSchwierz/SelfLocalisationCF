@@ -147,8 +147,8 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.25):
     norm_curr = np.linalg.norm(current_direction)
     if norm_curr < 1e-6:
         # If current_direction is near zero, choose a random direction uniformly on the sphere.
-        #random_vec = np.random.randn(3)
-        random_vec = np.array([1.0, 1.0, 1.0])
+        random_vec = np.random.randn(3)
+        #random_vec = np.array([1.0, 1.0, 1.0]) # for more controlled trajectories
         unit_current = random_vec / np.linalg.norm(random_vec)
     else:
         unit_current = current_direction / norm_curr
@@ -249,7 +249,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
                 #print(movement_direction)
         
             # Controller + Network Update         
-            position_real, velocity_gps = controller.update(movement_direction[:2])      
+            position_real, velocity_gps = controller.update(movement_direction)      
             velocity, az_corrected = controller.get_velocity()
             #velocity = velocity - 0.00005 # noise correction ?
             noisy_velocity = velocity #+ np.random.normal(scale=velocity_noise, size=(3,))
@@ -344,7 +344,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     save_object(data, f'{results_dir}\\{filename}')
     print(f' - Saved Data as {filename}')
     
-    train_perc, total_perc = visited_volume_percentages(integrated_pos_log, ARENA_BOUNDARIES, t=last_trained_step)
+    train_perc, total_perc = visited_volume_percentages(integrated_pos_log, ARENA_BOUNDARIES.flatten(), t=last_trained_step)
 
     print(f'Finished execution of ID {ID}')
     metrics = {
@@ -371,15 +371,16 @@ if __name__ == '__main__':
     INITIAL = [0, 0, 0]
 
     trial_per_setting = 20
-    gains = [0.2, 0.5, 0.7, 1.0]
+    gains = [0.2, 0.4, 0.6, 0.8, 1.0]
 
-    noise = [0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.99] #0.05 * np.ones(len(times)) 
-    times = 5.0 * np.ones(len(noise)) #[5.0, 7.5, 10.0, 15.0, 20.0, 30.0]
-    setting = noise
+    
+    times = [30.0] #[5.0, 7.5, 10.0, 15.0, 20.0, 30.0] #5.0 * np.ones(len(noise)) 
+    noise = 0.2 * np.ones(len(times)) #[0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.99] #
+    setting = times
 
     for i, var in enumerate(setting):
-        print(f'Running {trial_per_setting} trials for setting {i+1}/{len(setting)}')
-        id_ = f'BenchmarkNoise setting{i+1}of{len(setting)}'
+        print(f'Running {trial_per_setting} trials for setting {i+1+5}/6')#'{len(setting)}')
+        id_ = f'BenchmarkTime setting{i+1+5}of6'#'{len(setting)}'
         data_all = []
 
         results_dir = f"Results\\ID {id_}"
@@ -402,7 +403,7 @@ if __name__ == '__main__':
             summary[f'std {key}'] = np.std(vals)
 
         summary['setting var'] = setting
-        summary['setting mode'] = 'noise'
+        summary['setting mode'] = 'Time'
         save_object(summary, f'{results_dir}\\summary.pickle')
 
         print(f"\n→ All trials done. Summary saved to {results_dir}\\Summary.pickle")
