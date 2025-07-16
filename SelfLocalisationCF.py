@@ -240,8 +240,8 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     controller = DroneController(robot, FLYING_ATTITUDE)
     mmc = MixedModularCoder(gains=gains)
     '''                                                         (6 if decode_vel else 3)'''
-    rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=(6 if decode_vel else 3)  , lambda_=0.999, delta=1e2)
-    #rls = PredictionModel.RLSRegressorWithTracking(mmc.ac_size, num_outputs=3)
+    #rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=(6 if decode_vel else 3)  , lambda_=0.999, delta=1e2)
+    rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=3, lambda_=0.999, delta=1e2)
 
     neural_noise, velocity_noise = noise_scales 
     
@@ -264,6 +264,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     pred_mse_short_log = []
     pred_vel_log = []
     pred_vel_short_log = []
+    execution_time = []
     
     training_done = False
     MAX_SIMULATION_TIME = (60 * simulated_minutes) + INITIAL_PAUSE # 1min in seconds * amount of hours
@@ -300,7 +301,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
                 #print(movement_direction)
         
             # Controller + Network Update         
-            position_real, velocity_gps = controller.update(movement_direction) 
+            position_real, velocity_gps = controller.update(movement_direction[:2]) 
             velocity, az_corrected = controller.get_velocity()
             #velocity = velocity - 0.00005 # noise correction ?
             noisy_velocity = velocity #+ np.random.normal(scale=velocity_noise, size=(3,))
@@ -325,7 +326,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
             else:
                 prediction_pos = prediction
                 prediction_vel = np.zeros(3)
-            rls.update(noisy_activity, (np.array([pos_internal, velocity]) if decode_vel else pos_internal) ) 
+            _, time = rls.update(noisy_activity, (np.array([pos_internal, velocity]) if decode_vel else pos_internal) )  
 
             predicted_pos_log.append(prediction_pos)
             prediction_mse_log.append(np.sum((prediction_pos-pos_internal)**2)/len(pos_internal))  # was compared to pos_real before
@@ -341,6 +342,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
             # saving values
             integrated_pos_log.append(pos_internal.copy())
             network_states.append(noisy_activity)
+            execution_time.append(time)
         position_log.append(position_real)
         acceleration_log.append(az_corrected)
         velocity_log.append(velocity)
@@ -353,8 +355,8 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     print(f'Simulation finished at {elapsed_time/60:.0f} minutes')
     print('Calculating offline prediction...')
     # Predict the position using a linear model and plot the results
-    X, y, y_pred, mse_mean, mse_shuffeled, r2_mean, r2_shuffeled = fit_linear_model(network_states, integrated_pos_log, return_shuffled=True)
-    Xtrain, Xtest, ytrain, ytest, y_pred_short, mse_mean_short, mse_shuffeled_short, r2_mean_short, r2_shuffeled_short = fit_linear_model(network_states, integrated_pos_log, train_index=last_trained_step, return_shuffled=True)
+    X, y, y_pred, mse_mean, r2_mean, time = fit_linear_model(network_states, np.array(integrated_pos_log)[:,:2], return_shuffled=False)
+    Xtrain, Xtest, ytrain, ytest, y_pred_short, mse_mean_short, r2_mean_short, _ = fit_linear_model(network_states, np.array(integrated_pos_log)[:,:2], train_index=last_trained_step, return_shuffled=False)
     print(' - Predicted location data\nSaving data...')
 
     # Save the results of the network
@@ -379,14 +381,14 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
         'online short mse' : pred_mse_short_log,
         'offline prediction' : np.array(y_pred),
         'mse' : mse_mean,
-        'mse_shuffeled' : mse_shuffeled,
+        #'mse_shuffeled' : mse_shuffeled,
         'r2_mean' : r2_mean,
-        'r2_shuffeled' : r2_shuffeled,
+        #'r2_shuffeled' : r2_shuffeled,
         'offline short prediction' : np.array(y_pred_short),
         'mse short' : mse_mean_short,
-        'mse shuffeled short' : mse_shuffeled_short,
+        #'mse shuffeled short' : mse_shuffeled_short,
         'r2 mean short' : r2_mean_short,
-        'r2 shuffeled short' : r2_shuffeled_short,
+        #'r2 shuffeled short' : r2_shuffeled_short,
         'rls convergence matrix' : rls.convergence_metrics.copy(),
         'online vel prediction' : pred_vel_log,
         'online vel short predition' : pred_vel_short_log
@@ -404,14 +406,16 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
         'online short mse' : pred_mse_short_log,
         'offline mse' : mse_mean,
         'offline mse short' : mse_mean_short,
-        'mse shuffeled' : mse_shuffeled,
+        #'mse shuffeled' : mse_shuffeled,
         'r2_mean' : r2_mean,
-        'r2_shuffeled' : r2_shuffeled,
-        'mse shuffeled short' : mse_shuffeled_short,
+        #'r2_shuffeled' : r2_shuffeled,
+        #'mse shuffeled short' : mse_shuffeled_short,
         'r2 mean short' : r2_mean_short,
-        'r2 shuffeled short' : r2_shuffeled_short,
+        #'r2 shuffeled short' : r2_shuffeled_short,
         'coverage' : total_perc,
         'coverage train' : train_perc,
+        'time rls' : np.mean(execution_time),
+        'time rr' : time
     }
     return metrics
 
@@ -425,14 +429,14 @@ if __name__ == '__main__':
     trial_per_setting = 20
     gains = [0.2, 0.4, 0.6, 0.8, 1.0]
 
-    
-    times = [5.0] #[5.0, 7.5, 10.0, 15.0, 20.0, 30.0] #5.0 * np.ones(len(noise)) 
+    times = [10.0] #[5.0, 7.5, 10.0, 15.0, 20.0, 30.0] #5.0 * np.ones(len(noise)) 
     noise = 0.2 * np.ones(len(times)) #[0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.99] #
     setting = times
 
     for i, var in enumerate(setting):
-        print(f'Running {trial_per_setting} trials for setting {i+1+5}/{len(setting)}')#'')
-        id_ = f'Benchmark 3D setting{i+1}of{len(setting)}'#'{len(setting)}'
+        print(f'Running {trial_per_setting} trials for setting {i+1}/{len(setting)}')#'')
+        #id_ = f'Benchmark 3D setting{i+1}of{len(setting)}'#'{len(setting)}'
+        id_ = f'Benchmark 2D [10min, 0.2std]'
         data_all = []
 
         results_dir = f"Results\\ID {id_}"

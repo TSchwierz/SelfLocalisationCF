@@ -5,7 +5,7 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold, cross_val_predict, cross_val_score
 from sklearn.metrics import mean_squared_error, r2_score
 
-def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=False, alpha=1.0, cv_folds=2, seed=42):
+def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=False, alpha=1.0, cv_folds=10, seed=42):
     '''
     Predicts the location of the agent based on the activity level of the network
     :param activity_array: np.array featuring the time history of network activity. shape (ntime, (nmodules,) ngain, nneuron)
@@ -24,6 +24,7 @@ def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=Fals
             tuple: (X_train, X_test, y_train, y_test, y_pred_test, mse_test, r2_test) OR
             tuple: (X_train, X_test, y_train, y_test, y_pred_test, mse_test, mse_test_shuffled, r2_test, r2_test_shuffled)
     '''
+    t1 = perf_counter()
     np.random.seed(seed)
     X = np.array(activity_array).reshape(np.shape(activity_array)[0], -1)  # shape is (time, modules*gains*N)
     y = np.array(pos)  # shape is (time, ndim)
@@ -48,7 +49,7 @@ def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=Fals
         r2_mean = round(np.mean(r2_scores), 5)
         
         if not return_shuffled:
-            return X, y, y_pred, mse_mean, r2_mean
+            return X, y, y_pred, mse_mean, r2_mean, perf_counter()-t1
         else:
             # Fit linear model with shuffled labels
             y_shuffled = y.copy()
@@ -85,7 +86,7 @@ def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=Fals
         r2_test = round(r2_score(y_test, y_pred_test), 5)
         
         if not return_shuffled:
-            return X_train, X_test, y_train, y_test, y_pred_test, mse_test, r2_test
+            return X_train, X_test, y_train, y_test, y_pred_test, mse_test, r2_test, perf_counter()-t1
         else:
             # Train model with shuffled training labels and test
             y_train_shuffled = y_train.copy()
@@ -153,6 +154,7 @@ class OptimisedRLS:
         Returns:
         np.ndarray: Updated weight matrix.
         """
+        t1 = perf_counter()
         # Ensure column vector format
         y_col = y.reshape(-1, 1)  # shape: (num_features, 1)
         x_col = x.reshape(-1, 1)  # shape: (num_outputs, 1)
@@ -198,7 +200,7 @@ class OptimisedRLS:
         np.subtract(self.P, self._KyTP, out=self.P)
         np.divide(self.P, self.lambda_, out=self.P)
        
-        return self.A
+        return self.A, perf_counter()-t1
 
     def predict(self, y):
         """
