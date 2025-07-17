@@ -1,4 +1,5 @@
 ﻿from asyncio.windows_events import NULL
+from colorsys import TWO_THIRD
 import numpy as np
 from controller import Robot
 from numpy import cos, sin
@@ -80,15 +81,15 @@ class DroneController:
     def get_az(self):
         return self.az
 
-    def get_location(self):
-        return np.array(self.gps.getValues())
+    def get_location(self, two_dim=False):
+        return np.array(self.gps.getValues())[:2] if two_dim else np.array(self.gps.getValues())
 
     def reset_velocity(self):
         gps_velocity = (self.pos_global - self.past_pos) / self.dt  
         self.velocity = gps_velocity
         print(f'reset imu velocity integration to {self.velocity}')
 
-    def get_velocity(self):
+    def get_velocity(self, two_dim=False):
         #print(self.az)
         # Build rotation matrix R_body→world
         cr = np.cos(self.roll);  sr = np.sin(self.roll)
@@ -105,8 +106,9 @@ class DroneController:
         acc_body_no_gravity = np.array([self.ax, self.ay, self.az]) - gravity_body
         aw = np.array(R) @ acc_body_no_gravity
 
-        #print(f'az={self.az:.2}, ac_no_g={acc_body_no_gravity[2]:.2}')
-       
+        if two_dim: # When only 2D is needed
+           return self.velocity.copy()[:2], aw[2]
+
         # Euler Integration: v = v + a * dt
         self.velocity += (aw * self.dt)
         z_bias = 6.3e-6  # Empirically estimated drift

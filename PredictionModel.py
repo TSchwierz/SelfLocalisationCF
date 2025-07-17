@@ -24,7 +24,7 @@ def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=Fals
             tuple: (X_train, X_test, y_train, y_test, y_pred_test, mse_test, r2_test) OR
             tuple: (X_train, X_test, y_train, y_test, y_pred_test, mse_test, mse_test_shuffled, r2_test, r2_test_shuffled)
     '''
-    t1 = perf_counter()
+    #t1 = perf_counter()
     np.random.seed(seed)
     X = np.array(activity_array).reshape(np.shape(activity_array)[0], -1)  # shape is (time, modules*gains*N)
     y = np.array(pos)  # shape is (time, ndim)
@@ -49,7 +49,7 @@ def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=Fals
         r2_mean = round(np.mean(r2_scores), 5)
         
         if not return_shuffled:
-            return X, y, y_pred, mse_mean, r2_mean, perf_counter()-t1
+            return X, y, y_pred, mse_mean, r2_mean#, perf_counter()-t1
         else:
             # Fit linear model with shuffled labels
             y_shuffled = y.copy()
@@ -86,7 +86,7 @@ def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=Fals
         r2_test = round(r2_score(y_test, y_pred_test), 5)
         
         if not return_shuffled:
-            return X_train, X_test, y_train, y_test, y_pred_test, mse_test, r2_test, perf_counter()-t1
+            return X_train, X_test, y_train, y_test, y_pred_test, mse_test, r2_test#, perf_counter()-t1
         else:
             # Train model with shuffled training labels and test
             y_train_shuffled = y_train.copy()
@@ -154,7 +154,7 @@ class OptimisedRLS:
         Returns:
         np.ndarray: Updated weight matrix.
         """
-        t1 = perf_counter()
+        #t1 = perf_counter() # for execution time measurement
         # Ensure column vector format
         y_col = y.reshape(-1, 1)  # shape: (num_features, 1)
         x_col = x.reshape(-1, 1)  # shape: (num_outputs, 1)
@@ -200,7 +200,7 @@ class OptimisedRLS:
         np.subtract(self.P, self._KyTP, out=self.P)
         np.divide(self.P, self.lambda_, out=self.P)
        
-        return self.A, perf_counter()-t1
+        return self.A#, perf_counter()-t1
 
     def predict(self, y):
         """
@@ -210,7 +210,7 @@ class OptimisedRLS:
         y (np.ndarray): Input feature vector of shape (num_features,).
         
         Returns:
-        np.ndarray: Predicted output (e.g., 2D position).
+        np.ndarray: Predicted output (2D/3D position).
         """
         y = y.reshape(-1, 1)
         x_est = np.dot(self.A.T, y)

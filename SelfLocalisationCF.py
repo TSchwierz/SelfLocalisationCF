@@ -230,7 +230,7 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.25):
     return new_direction * magnitude
 
 # ---------------- Main Simulation Loop ----------------
-def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_scales=(0 , 0), angular_std=0.33, decode_vel=False, results_dir=None):
+def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_scales=(0 , 0), angular_std=0.33, two_dim=False, results_dir=None):
     if (results_dir is None):
         results_dir = f"Results\\ID {ID}"
     # Initialize simulation components
@@ -238,10 +238,9 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     timestep_ms = int(robot.getBasicTimeStep())
     dt = timestep_ms / 1000.0  # Convert timestep to seconds   
     controller = DroneController(robot, FLYING_ATTITUDE)
-    mmc = MixedModularCoder(gains=gains)
+    mmc = MixedModularCoder(gains=gains, two_dim=two_dim)
     '''                                                         (6 if decode_vel else 3)'''
-    #rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=(6 if decode_vel else 3)  , lambda_=0.999, delta=1e2)
-    rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=3, lambda_=0.999, delta=1e2)
+    rls = PredictionModel.OptimisedRLS(mmc.ac_size, num_outputs=(2 if two_dim else 3)  , lambda_=0.999, delta=1e2) # for 3D
 
     neural_noise, velocity_noise = noise_scales 
     
@@ -262,8 +261,6 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     prediction_mse_log = []
     pred_pos_short_log = []
     pred_mse_short_log = []
-    pred_vel_log = []
-    pred_vel_short_log = []
     execution_time = []
     
     training_done = False
@@ -288,7 +285,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
         else:
             if(controller.initial_pid):
                 controller.change_gains_pid(kp=0.5, kd=1.0, ki=0.0)
-                mmc.set_integrator(controller.get_location()) # get real position once to set integrator
+                mmc.set_integrator(controller.get_location(two_dim=two_dim)) # get real position once to set integrator
                 controller.reset_velocity() # sets the velocity integrated by imu sensors to gps derived velocity
                 # Default movement: no change unless a new command is issued at the interval #2d for proper function
                 movement_direction = np.array([0, 0])           
@@ -301,10 +298,9 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
                 #print(movement_direction)
         
             # Controller + Network Update         
-            position_real, velocity_gps = controller.update(movement_direction[:2]) 
-            velocity, az_corrected = controller.get_velocity()
-            #velocity = velocity - 0.00005 # noise correction ?
-            noisy_velocity = velocity #+ np.random.normal(scale=velocity_noise, size=(3,))
+            position_real, velocity_gps = controller.update( (movement_direction[:2] if two_dim else movement_direction) ) 
+            velocity, az_corrected = controller.get_velocity(two_dim)
+            noisy_velocity = velocity #+ np.random.normal(scale=velocity_noise, size=(3,)) # Not needed since sensor has already noisy readout
             activity, pos_internal = mmc.update(noisy_velocity*dt)
 
             # Noise addition
@@ -320,29 +316,21 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
                 
             # network online prediction                        
             prediction = rls.predict(noisy_activity)
-            if (decode_vel):
-                prediction_pos = prediction[:3]
-                prediction_vel = prediction[3:]
-            else:
-                prediction_pos = prediction
-                prediction_vel = np.zeros(3)
-            _, time = rls.update(noisy_activity, (np.array([pos_internal, velocity]) if decode_vel else pos_internal) )  
+            prediction_pos = prediction
+            _ = rls.update(noisy_activity, pos_internal)  # returns (A, time) 
 
             predicted_pos_log.append(prediction_pos)
             prediction_mse_log.append(np.sum((prediction_pos-pos_internal)**2)/len(pos_internal))  # was compared to pos_real before
-            pred_vel_log.append(prediction_vel)
  
             if (elapsed_time >= TRAINING_TIME): 
                 prediction_short = rls_short.predict(noisy_activity)
-                pred_pos_short_log.append(prediction_short[:3])
-                if (decode_vel):
-                    pred_vel_short_log.append(prediction_short[3:])
-                pred_mse_short_log.append(np.sum((prediction_short[:3]-pos_internal)**2)/len(pos_internal))
+                pred_pos_short_log.append(prediction_short)
+                pred_mse_short_log.append(np.sum((prediction_short-pos_internal)**2)/len(pos_internal))
 
             # saving values
             integrated_pos_log.append(pos_internal.copy())
             network_states.append(noisy_activity)
-            execution_time.append(time)
+            #execution_time.append(time)
         position_log.append(position_real)
         acceleration_log.append(az_corrected)
         velocity_log.append(velocity)
@@ -355,8 +343,9 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     print(f'Simulation finished at {elapsed_time/60:.0f} minutes')
     print('Calculating offline prediction...')
     # Predict the position using a linear model and plot the results
-    X, y, y_pred, mse_mean, r2_mean, time = fit_linear_model(network_states, np.array(integrated_pos_log)[:,:2], return_shuffled=False)
-    Xtrain, Xtest, ytrain, ytest, y_pred_short, mse_mean_short, r2_mean_short, _ = fit_linear_model(network_states, np.array(integrated_pos_log)[:,:2], train_index=last_trained_step, return_shuffled=False)
+    pos_state = np.array(integrated_pos_log) # take 2D or 3D position and make array of it
+    X, y, y_pred, mse_mean, r2_mean = fit_linear_model(network_states, pos_state, return_shuffled=False)
+    Xtrain, Xtest, ytrain, ytest, y_pred_short, mse_mean_short, r2_mean_short = fit_linear_model(network_states, pos_state, train_index=last_trained_step, return_shuffled=False)
     print(' - Predicted location data\nSaving data...')
 
     # Save the results of the network
@@ -389,16 +378,17 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
         #'mse shuffeled short' : mse_shuffeled_short,
         'r2 mean short' : r2_mean_short,
         #'r2 shuffeled short' : r2_shuffeled_short,
-        'rls convergence matrix' : rls.convergence_metrics.copy(),
-        'online vel prediction' : pred_vel_log,
-        'online vel short predition' : pred_vel_short_log
+        'rls convergence matrix' : rls.convergence_metrics.copy()
         }
     filename = f'Data {ID}.pickle'
     save_object(data, f'{results_dir}\\{filename}')
     print(f' - Saved Data as {filename}')
     
-    train_perc, total_perc = visited_volume_percentages(integrated_pos_log, ARENA_BOUNDARIES.flatten(), t=last_trained_step)
-    #train_perc, total_perc = visited_area_percentages(integrated_pos_log, ARENA_BOUNDARIES.flatten()[:4], t=last_trained_step)
+    
+    if (two_dim):
+        train_perc, total_perc = visited_area_percentages(integrated_pos_log, ARENA_BOUNDARIES.flatten()[:4], t=last_trained_step)
+    else:
+        train_perc, total_perc = visited_volume_percentages(integrated_pos_log, ARENA_BOUNDARIES.flatten(), t=last_trained_step)
 
     print(f'Finished execution of ID {ID}')
     metrics = {
@@ -414,10 +404,28 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
         #'r2 shuffeled short' : r2_shuffeled_short,
         'coverage' : total_perc,
         'coverage train' : train_perc,
-        'time rls' : np.mean(execution_time),
-        'time rr' : time
+        #'time rls' : np.mean(execution_time),
+        #'time rr' : time
     }
     return metrics
+
+def generate_gain_lists(Lsize, Lspacing, start=0.1):
+    '''
+    Generates a list of gains according to the desired sizes and spacings
+
+    :param Lsize: list of ints containing the amount of gains 
+    :param Lspacing: list of floats containing the constant increase between the gains
+
+    Return:
+    - an inhomogenous list of shape (len(Lsize)*len(Lspacing), Lsize) containing lists of gains
+    '''
+    gain_list = []
+
+    for n in Lsize:
+        for s in Lspacing:
+            gains = [round(start + i * s, 1) for i in range(n)]
+            gain_list.append(gains)
+    return gain_list
 
 if __name__ == '__main__':
     robot = Robot()
@@ -427,16 +435,19 @@ if __name__ == '__main__':
     INITIAL = [0, 0, 0]
 
     trial_per_setting = 20
-    gains = [0.2, 0.4, 0.6, 0.8, 1.0]
 
-    times = [10.0] #[5.0, 7.5, 10.0, 15.0, 20.0, 30.0] #5.0 * np.ones(len(noise)) 
-    noise = 0.2 * np.ones(len(times)) #[0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.99] #
-    setting = times
+    nr = [2, 3, 4, 5]
+    spacing = [0.1, 0.2, 0.3, 0.4]
+    gain_list = generate_gain_lists(nr, spacing, start=0.2)
+
+    times = 10.0 * np.ones(len(gain_list)) #[10.0] #[5.0, 7.5, 10.0, 15.0, 20.0, 30.0] # 
+    noise = 0.2 * np.ones(len(gain_list)) #[0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.99] #
+    setting = gain_list
 
     for i, var in enumerate(setting):
         print(f'Running {trial_per_setting} trials for setting {i+1}/{len(setting)}')#'')
         #id_ = f'Benchmark 3D setting{i+1}of{len(setting)}'#'{len(setting)}'
-        id_ = f'Benchmark 2D [10min, 0.2std]'
+        id_ = f'Benchmark 2D BestGain Setting {i}of{len(setting)}'
         data_all = []
 
         results_dir = f"Results\\ID {id_}"
@@ -445,8 +456,8 @@ if __name__ == '__main__':
         for trial in range(trial_per_setting):
             trans_field.setSFVec3f(INITIAL)
             robot_node.resetPhysics()
-            data = main(ID=f'trial{trial}', gains=gains, robot_=robot, simulated_minutes=times[i],
-               training_fraction=0.8, noise_scales=(noise[i], 0.00), angular_std=0.33, decode_vel=False,
+            data = main(ID=f'trial{trial}', gains=var, robot_=robot, simulated_minutes=times[i],
+               training_fraction=0.8, noise_scales=(noise[i], 0.00), angular_std=0.33, two_dim=True,
               results_dir=results_dir)
             data_all.append(data)
             # noise scales = (Neural, Velocity)
@@ -455,12 +466,20 @@ if __name__ == '__main__':
         for key in data_all[0].keys():
             # stack along new axis and average
             vals = [m[key] for m in data_all]
-            summary[f'avg {key}'] = np.mean(vals)
-            summary[f'std {key}'] = np.std(vals)
-            summary[f'per {key}'] = np.percentile(vals, [25, 75])
+            flat_vals = np.array(vals).flatten()
+
+            print(f"Key: {key}")
+            print(f"Type: {type(vals)}")
+            print(f"Shape: {np.array(vals).shape}")
+            #print(f"Sample values: {vals[:3]}")  # First 3 values
+            print(f"Min/Max: {np.min(vals)}, {np.max(vals)}")
+            print("---")
+            summary[f'avg {key}'] = np.mean(flat_vals)
+            summary[f'std {key}'] = np.std(flat_vals)
+            summary[f'per {key}'] = np.percentile(flat_vals, [25, 75])
 
         summary['setting var'] = setting
-        summary['setting mode'] = 'Time'
+        summary['setting mode'] = 'gains'
         save_object(summary, f'{results_dir}\\summary.pickle')
 
         print(f"\n→ All trials done. Summary saved to {results_dir}\\Summary.pickle")
