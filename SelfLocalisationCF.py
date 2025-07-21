@@ -439,6 +439,7 @@ if __name__ == '__main__':
     nr = [2, 3, 4, 5]
     spacing = [0.1, 0.2, 0.3, 0.4]
     gain_list = generate_gain_lists(nr, spacing, start=0.2)
+    #gain_list = [[0.2, 0.4, 0.6]]
 
     times = 10.0 * np.ones(len(gain_list)) #[10.0] #[5.0, 7.5, 10.0, 15.0, 20.0, 30.0] # 
     noise = 0.2 * np.ones(len(gain_list)) #[0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.99] #

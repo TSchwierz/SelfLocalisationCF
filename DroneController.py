@@ -82,7 +82,7 @@ class DroneController:
         return self.az
 
     def get_location(self, two_dim=False):
-        return np.array(self.gps.getValues())[:2] if two_dim else np.array(self.gps.getValues())
+        return np.array(self.pos_global)[:2] if two_dim else np.array(self.pos_global)
 
     def reset_velocity(self):
         gps_velocity = (self.pos_global - self.past_pos) / self.dt  
@@ -106,11 +106,12 @@ class DroneController:
         acc_body_no_gravity = np.array([self.ax, self.ay, self.az]) - gravity_body
         aw = np.array(R) @ acc_body_no_gravity
 
-        if two_dim: # When only 2D is needed
-           return self.velocity.copy()[:2], aw[2]
-
         # Euler Integration: v = v + a * dt
         self.velocity += (aw * self.dt)
+
+        if two_dim: # When only 2D is needed
+           return self.velocity.copy()[:2], aw[2]
+        
         z_bias = 6.3e-6  # Empirically estimated drift
         aw[2] -= z_bias 
         return self.velocity.copy(), aw[2]
