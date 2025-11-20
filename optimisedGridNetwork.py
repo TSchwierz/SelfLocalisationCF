@@ -1,5 +1,5 @@
 import numpy as np
-from numba import njit, prange
+from numba import njit, prange, cuda
 import math
 
 class MixedModularCoder:
@@ -52,16 +52,14 @@ class MixedModularCoder:
         return activity, self.pos_integrator
 
     def project_velocity(self, vel3D):
-        # Explicit calculation instead of matrix operations for this small case
         result = np.zeros((self.M, 2))
         for m in range(self.M):
-            for n in range(2):
+            for n in range(self.N):
                 for x in range(vel3D.shape[0]):
                     result[m, n] += self.A[m, n, x] * vel3D[x]
         return result
         
     def project_positions(self, pos3D):
-        # More efficient than einsum for this simple operation
         return np.dot(self.A, pos3D.T).transpose(0, 2, 1)
 
 
@@ -270,60 +268,5 @@ def _update_network_jit_fixed(network_activity, distance_matrix, gains, rotated_
             for i in range(n_neurons):
                 result[a, i] = temp_activity[i]
                 network_activity[a, i] = temp_activity[i]
-    
-    return result
-
-@njit(parallel=True)
-def _update_network_jit(network_activity, distance_matrix, gains, rotated_velocity, I, T, sigma_squared, tau):
-    """JIT-compiled function to update network activity for all gains"""
-    n_gains = len(gains)
-    n_neurons = network_activity.shape[1]
-    result = np.zeros_like(network_activity)
-    
-    # Process each gain in parallel
-    for a in prange(n_gains):
-        alpha = gains[a]
-        
-        # Compute weight matrix directly
-        W = np.zeros((n_neurons, n_neurons))
-        for i in range(n_neurons):
-            for j in range(n_neurons):
-                # Add the velocity component to the distance
-                dx = distance_matrix[i, j, 0] + alpha * rotated_velocity[0]
-                dy = distance_matrix[i, j, 1] + alpha * rotated_velocity[1]
-                
-                # Compute squared norm
-                dist_squared = dx*dx + dy*dy
-                
-                # Compute weight matrix element directly
-                # Use math.exp instead of np.exp for better Numba performance
-                W[i, j] = I * math.exp(-dist_squared / sigma_squared) - T
-        
-        # Apply weights to current activity
-        b_activity = np.zeros(n_neurons)
-        for i in range(n_neurons):
-            sum_weighted = 0.0  # Use a scalar to accumulate
-            for j in range(n_neurons):
-                sum_weighted += network_activity[a, j] * W[i, j]
-            b_activity[i] = sum_weighted
-        
-        # Apply normalization
-        sum_activity = 0.0  # Use a scalar for sum
-        for i in range(n_neurons):
-            sum_activity += network_activity[a, i]
-        
-        epsilon = 1e-10  # Prevent division by zero
-        
-        for i in range(n_neurons):
-            # Apply normalization term
-            net_activity = (1 - tau) * b_activity[i] + tau * (b_activity[i] / (sum_activity + epsilon))
-            
-            # Ensure no negative values
-            if net_activity < 0:
-                net_activity = 0
-                
-            result[a, i] = net_activity
-            # Update in-place for the next iteration
-            network_activity[a, i] = net_activity
     
     return result

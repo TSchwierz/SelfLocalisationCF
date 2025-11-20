@@ -1,36 +1,30 @@
 # SelfLocalisationCF
-This project aims to implement self localisation using a grid cell model as presented by guanella et al (doi:10.1142/S0129065707001093) in the crazyflie drone as simulated in the webots environment (Details:https://www.bitcraze.io/documentation/tutorials/getting-started-with-simulation/)
+## Overview:
+This project aims to implement self localisation using a grid cell model as presented by guanella et al (doi:10.1142/S0129065707001093) in the crazyflie drone simulated in the webots environment (Details:https://www.bitcraze.io/documentation/tutorials/getting-started-with-simulation/). For the three-dimensional encoding by the grid network, we make use of the mixed modular encoder as formulated by klukas et al. (https://doi.org/10.1371/journal.pcbi.1007796). In order to construct a network that can represent space through grid cell activity, the drone is made to move randomly in a square box environment. The position of the drone is learned by a prediction model that maps the grid cell activity to the actual position. The performance of the model is evaluated by comparing the predicted position to the actual position of the drone.<br>
+*The project is part of the master thesis of Tom Schwierz at the Radboud University Nijmegen.*
 
 ## Files and Folders:
  - SelfLocalisationCF.py
 	- This is the main script and control flow of the program.
-- GridNetwork.py
-	- This code implements the grid cell model of the guanella paper (doi:10.1142/S0129065707001093). Thanks to Raimon Bullich Villareal for providing the bulk of the code.
+- optimisedGridNetwork.py
+	- This code implements the mixed modular encoder (klukas et al) using three two-dimensional grid cell model based on guanella et al.
 - DroneController.py
 	- Implements a controller unit that is used to control the drone in webbots. Makes use of a PID controller. Sourced and modified sample controller code.
 - PredictionModel.py
-	- The algorithm used for online prediction is defined here.
+	- The algorithm used for ridge regression and recursive least squares predictions is defined here.
 - Sample
 	- Within this folder are the sample scripts of webots for the wall_following drone controller._ 
-- Results
-	- In this folder are the most recent plots and results organised by their ID.
+- Webots&Execution
+	- In this folder are any files related to webots. This includes the world file, and a batch file to start the controller.
 - Deprecated
 	- This folder features old version of scripts which are not used any more.
-- SquareBox.wbt
-	- this is the world file used by webots to construct the environment.
-- runSLC.bat
-	- A batch file that can be run in the cmd to start the controller in webots
-
-
-## Current Tasks (no particular order):
-1. The project is getting long and complicated codewise. Proper documentation is crucial to maintain overview. Improve the readability and documentation of the code.
-2. There is a small systematic error in the velocity as gained through imu sensors and gps sensors. Where does it stem from and how to get rid of it.
-1. Build in a learning limit after which the decoder stops learning and only predicts new positions based on the activity.
-1. Test configurations of the decoder: offline vs online 
-1. What impact does noise have on the model and decoder?
-
+- Setup.md
+	- A tutorial on how to set up the project and run it.
+- ResultsAnalysis.ipynb
+	- A jupyter notebook that can be used to analyse the results of a simulation run. It features plotting functions and statistical analysis of the prediction performance.
 
 ## Latest Change:
+**20.11.:** Clean-up and addendum to the README file. <br>
 **23.05.:** Introduced velocity aquisition by imu sensors as input for position integration of the model. Fixes of the optimised grid network to produce activity values in the full [0.0, 1.0] range. <br>
 **12.05.:** Added functionality and mean position confidence range visualisation to the notebook handling results.<br> 
 **08.05.:** Optimised both network and prediction models for faster execution time. Achieved ~4x speed up.<br>
@@ -60,5 +54,3 @@ This project aims to implement self localisation using a grid cell model as pres
 **26.02.:** Included the changes added by raimon to decode the location. Also moved the PID code to the controller, which deprecates the pid_controller file, hopefully reducing the complexity of the project.<br>
 **15.02.:** Added code to update the grid network on every time step. It seems that the network is prone to overflow issues after just a couple of time steps(~20sec).<br>
 **15.02.:** Corrected the yaw behaviour. Previously the yaw of the drone would be oscillating between two values. It now correctly stays in place until a new rotation command is given. The drone now stably moves for large simulated times (>1h), but seems to have a preference of staying within a certain quadrant.
-
-

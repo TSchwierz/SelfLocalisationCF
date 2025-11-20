@@ -1,9 +1,13 @@
-﻿import numpy as np
+﻿'''
+Module for fitting linear models with convergence tracking and comparing Ridge regression with Recursive Least Squares (RLS).
+'''
+import numpy as np
 import matplotlib.pyplot as plt
 from time import perf_counter
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold, cross_val_predict, cross_val_score
 from sklearn.metrics import mean_squared_error, r2_score
+from numba import jit, cuda
 
 def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=False, alpha=1.0, cv_folds=10, seed=42):
     '''
