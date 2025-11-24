@@ -20,6 +20,7 @@ class MixedModularCoder:
 
         nx = 10
         ny = 9
+        self.N = N
         self.M = M
         self.nrGains = len(gains)
         self.mod_size = nx*ny*self.nrGains

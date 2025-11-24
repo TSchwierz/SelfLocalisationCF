@@ -10,25 +10,16 @@ The simulation logs the drone's position and grid network activity, then visuali
 predicts the drone's path using a linear model.
 """
 
-#from asyncio.windows_events import NULL
-#from multiprocessing.heap import Arena
-from base64 import decode
 import os
-from tkinter import LAST
-#from turtle import position
-#from PIL.Image import ID
-from numba import none
 import numpy as np
 from controller import Robot
 from controller import Supervisor
 from DroneController import DroneController
 from optimisedGridNetwork import MixedModularCoder
-import PredictionModel
 from datetime import datetime
 import pickle
 from PredictionModel import fit_linear_model
 from PredictionModel import OptimisedRLS
-from optimisedPredictionModel import OptimisedRLS_GPU
 import copy
 from time import perf_counter
 
@@ -447,34 +438,19 @@ if __name__ == '__main__':
     #nr = [2, 3, 4, 5]
     #spacing = [0.1, 0.2, 0.3, 0.4]
     #gain_list = generate_gain_lists(nr, spacing, start=0.2)
-    gains1 = [0.2, 0.3, 0.4, 0.5]
-    gains2 = [0.2, 0.3, 0.4, 0.5, 0.6]
+    gains = [0.2, 0.3, 0.4, 0.5]
 
-    setting = np.array([gains1, gains1])
+    setting = [gains]
     times = 20.0 * np.ones(len(setting)) #
-     #[0.05, 0.10, 0.20, 0.40, 0.60, 0.80, 1.00] #  
-    noise = 0.0 * np.ones(len(setting)) 
+     #[0.05, 0.10, 0.20, 0.40, 0.60, 0.80, 1.00] #  Noise levels for each setting
+    noise = 0.05 * np.ones(len(setting)) 
 
     for i, var in enumerate(setting):
-        dim2 = i # False if gains1, True if gains2
-        '''
-        if (i<=2):
-            gains=gains1
-            dim2 = True
-        elif (i<=5):
-            gains=gains2
-            dim2 = True
-        elif(i<=8):
-            gains=gains1
-            dim2 = False
-        else:
-            gains=gains2
-            dim2 = False
-        '''
+        dim2 = False
 
         print(f'Running {trial_per_setting} trials for setting {i+1}/{len(setting)}')#'')
         #id_ = f'Benchmark 3D setting{i+1}of{len(setting)}'#'{len(setting)}'
-        id_ = f'Benchmark activity Setting {i}of{len(setting)}'
+        id_ = f'Benchmark Setting {i}of{len(setting)}'
         data_all = []
 
         results_dir = f"Results\\ID {id_}"
