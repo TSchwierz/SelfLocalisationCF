@@ -12,7 +12,7 @@ REM Execute the controller script with Webots
 webots-controller.exe %SLcontroller%\SelfLocalisationCF.py
 
 REM Change back to the specified home directory
-cd %specHome%
+cd "%SLcontroller%\Webots&Execution\"
 
 REM Deactivate the conda environment
 call conda deactivate

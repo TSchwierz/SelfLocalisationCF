@@ -9,13 +9,13 @@ from sklearn.model_selection import KFold, cross_val_predict, cross_val_score
 from sklearn.metrics import mean_squared_error, r2_score
 from numba import jit, cuda
 
-def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=False, alpha=1.0, cv_folds=10, seed=42):
+def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=False, alpha=1.0, cv_folds=8, seed=42):
     '''
     Predicts the location of the agent based on the activity level of the network
     :param activity_array: np.array featuring the time history of network activity. shape (ntime, (nmodules,) ngain, nneuron)
     :param pos: list of shape (ntime, ndim), position log of the agent
     :param train_index: int, optional. Index indicating the last sample that is part of training data.
-                       If None, uses cross-validation on the entire dataset (original behavior).
+                       If None, uses cross-validation on the entire dataset.
                        If provided, samples 0:train_index+1 are used for training, train_index+1: for testing.
     :param return_shuffled: bool, default=False
     :param alpha: float, parameter used for the regression model
@@ -49,8 +49,8 @@ def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=Fals
         y_pred = cross_val_predict(model, X, y, cv=kf)
         
         # Compute the average scores
-        mse_mean = round(np.mean(mse_scores), 5)
-        r2_mean = round(np.mean(r2_scores), 5)
+        mse_mean = np.mean(mse_scores)
+        r2_mean = np.mean(r2_scores)
         
         if not return_shuffled:
             return X, y, y_pred, mse_mean, r2_mean#, perf_counter()-t1
@@ -62,8 +62,8 @@ def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=Fals
             mse_shuffled_scores = -cross_val_score(model, X, y_shuffled, cv=kf, scoring='neg_mean_squared_error')
             r2_shuffled_scores = cross_val_score(model, X, y_shuffled, cv=kf, scoring='r2')
             
-            mse_shuffled_mean = round(np.mean(mse_shuffled_scores), 5)
-            r2_shuffled_mean = round(np.mean(r2_shuffled_scores), 5)
+            mse_shuffled_mean = np.mean(mse_shuffled_scores)
+            r2_shuffled_mean = np.mean(r2_shuffled_scores)
             
             return X, y, y_pred, mse_mean, mse_shuffled_mean, r2_mean, r2_shuffled_mean
     
@@ -90,7 +90,7 @@ def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=Fals
         r2_test = round(r2_score(y_test, y_pred_test), 5)
         
         if not return_shuffled:
-            return X_train, X_test, y_train, y_test, y_pred_test, mse_test, r2_test#, perf_counter()-t1
+            return [X_train, X_test], [y_train, y_test], y_pred_test, mse_test, r2_test#, perf_counter()-t1
         else:
             # Train model with shuffled training labels and test
             y_train_shuffled = y_train.copy()
@@ -135,17 +135,17 @@ class OptimisedRLS:
         self._KyTP = np.zeros((num_features, num_features))
 
         # Convergence tracking
-        self.convergence_metrics = {
-            'weight_changes': [],
-            'weight_norms': [],
-            'prediction_errors': [],
-            'gain_norms': [],
-            'innovation_norms': [],
-            'timestamps': []
-        }
+        #self.convergence_metrics = {
+        #    'weight_changes': [],
+        ##    'weight_norms': [],
+         #   'prediction_errors': [],
+         #   'gain_norms': [],
+         #   'innovation_norms': [],
+        #    'timestamps': []
+        #}
         
         self._prev_A = self.A.copy()
-        self._update_count = 0
+        #self._update_count = 0
         
     def update(self, y, x):
         """
@@ -163,7 +163,7 @@ class OptimisedRLS:
         y_col = y.reshape(-1, 1)  # shape: (num_features, 1)
         x_col = x.reshape(-1, 1)  # shape: (num_outputs, 1)
 
-        self._update_count+=1
+        #self._update_count+=1
         
         # Reuse pre-allocated arrays
         np.dot(self.P, y_col, out=self._Py)
@@ -177,15 +177,15 @@ class OptimisedRLS:
         np.dot(self.A.T, y_col, out=self._error)
         np.subtract(x_col, self._error, out=self._error)
 
-         # Track convergence metrics before update
-        if self._update_count > 1:
-            weight_change = np.linalg.norm(self.A - self._prev_A, 'fro')
-            pred_error = np.mean(self._error ** 2)
-            innovation_norm = np.linalg.norm(self._error)
+        ## Track convergence metrics before update
+        #if self._update_count > 1:
+        #    weight_change = np.linalg.norm(self.A - self._prev_A, 'fro')
+        #    pred_error = np.mean(self._error ** 2)
+        #    innovation_norm = np.linalg.norm(self._error)
 
-            self.convergence_metrics['weight_changes'].append(weight_change)           
-            self.convergence_metrics['prediction_errors'].append(pred_error)           
-            self.convergence_metrics['innovation_norms'].append(innovation_norm)
+        #    self.convergence_metrics['weight_changes'].append(weight_change)           
+        #    self.convergence_metrics['prediction_errors'].append(pred_error)           
+        #    self.convergence_metrics['innovation_norms'].append(innovation_norm)
         
         # Store previous weights
         self._prev_A = self.A.copy()
@@ -193,11 +193,11 @@ class OptimisedRLS:
         # Update weights
         self.A += np.dot(self._K, self._error.T)
 
-        # Track post-update metrics
-        weight_norm = np.linalg.norm(self.A, 'fro')
-        gain_norm = np.linalg.norm(self._K)
-        self.convergence_metrics['weight_norms'].append(weight_norm)
-        self.convergence_metrics['gain_norms'].append(gain_norm)
+        ## Track post-update metrics
+        #weight_norm = np.linalg.norm(self.A, 'fro')
+        #gain_norm = np.linalg.norm(self._K)
+        #self.convergence_metrics['weight_norms'].append(weight_norm)
+        #self.convergence_metrics['gain_norms'].append(gain_norm)
               
         # Update inverse correlation matrix
         np.dot(self._K, np.dot(y_col.T, self.P), out=self._KyTP)

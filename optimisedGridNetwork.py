@@ -36,7 +36,7 @@ class MixedModularCoder:
     def set_integrator(self, pos):
         self.pos_integrator = pos.copy()
 
-    def update(self, velocity):
+    def update(self, velocity, noise=False):
         # Pre-allocate activity array
         activity = np.zeros((self.M, self.nrGains, self.mod_size//self.nrGains))
         
@@ -167,7 +167,7 @@ class GridNetwork:
         #print('Distance matrix initialized')
         return distance_matrix
 
-    def update_network(self, velocity):
+    def update_network(self, velocity, noise_sigma=0):
         """
         Simulate grid-cell activity in real time
         
@@ -180,15 +180,22 @@ class GridNetwork:
         # Convert velocity to standard numpy array if it's not already
         velocity = np.asarray(velocity, dtype=np.float64)
         
-        # Compute rotated velocity once
+        # Compute rotated velocity
         rotated_velocity = np.dot(self.R, velocity)
         
         # Create a copy of network_activity to avoid modifying the original during JIT execution
         # This helps prevent potential race conditions in parallel execution
         network_activity_copy = self.network_activity.copy()
-        
+
+        # Generate noise if required
+        # Noise is relative value to the activity, i.e., 0.1 means activity * 1.1.
+        noise = np.zeros_like(network_activity_copy)
+        if noise_sigma > 0:
+            noise = noise_sigma* np.random.normal(0, 1, np.shape(network_activity_copy))
+        noise = np.ascontiguousarray(noise, dtype=np.float64)
+
         # Update all layers at once using JIT-compiled function
-        result = _update_network_jit_fixed(
+        result = _update_network_jit(
             network_activity_copy,
             self.distance_matrix,
             self.gains,
@@ -196,7 +203,8 @@ class GridNetwork:
             self.I,
             self.T,
             self.sigma_squared,
-            self.tau
+            self.tau,
+            noise
         )
         
         # Update the network activity
@@ -206,7 +214,7 @@ class GridNetwork:
 
 
 @njit(parallel=True)
-def _update_network_jit_fixed(network_activity, distance_matrix, gains, rotated_velocity, I, T, sigma_squared, tau):
+def _update_network_jit(network_activity, distance_matrix, gains, rotated_velocity, I, T, sigma_squared, tau, noise):
     """JIT-compiled function with proper range normalization"""
     n_gains = len(gains)
     n_neurons = network_activity.shape[1]
@@ -242,9 +250,10 @@ def _update_network_jit_fixed(network_activity, distance_matrix, gains, rotated_
         temp_activity = np.zeros(n_neurons)
         
         for i in range(n_neurons):
-            net_activity = (1 - tau) * b_activity[i] + tau * (b_activity[i] / (sum_activity + epsilon))
+            net_activity = (1 - tau) * b_activity[i] + tau * (b_activity[i] / (sum_activity + epsilon)) #+ noise[a, i]
             if net_activity < 0:
                 net_activity = 0
+            print(np.max(net_activity))
             temp_activity[i] = net_activity
         
         # RANGE NORMALIZATION: Scale to use full 0-1 range
@@ -263,11 +272,11 @@ def _update_network_jit_fixed(network_activity, distance_matrix, gains, rotated_
         if activity_range > epsilon:
             for i in range(n_neurons):
                 result[a, i] = (temp_activity[i] - min_val) / activity_range
-                network_activity[a, i] = result[a, i]
+                #network_activity[a, i] = result[a, i]
         else:
             # If no range, keep current values
             for i in range(n_neurons):
                 result[a, i] = temp_activity[i]
-                network_activity[a, i] = temp_activity[i]
+                #network_activity[a, i] = temp_activity[i]
     
     return result

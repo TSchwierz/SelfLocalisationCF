@@ -295,43 +295,38 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
             # Controller + Network Update         
             position_real, velocity_gps = controller.update( (movement_direction[:2] if two_dim else movement_direction) ) 
             velocity, az_corrected = controller.get_velocity(two_dim)
-            noisy_velocity = velocity #+ np.random.normal(scale=velocity_noise, size=(3,)) # Not needed since sensor has already noisy readout
-            activity, pos_internal = mmc.update(noisy_velocity*dt)
-
-            # Noise addition
-            noise = np.random.normal(0, neural_noise, np.shape(activity))
-            noisy_activity = np.clip(activity + noise, 0.0, 1.0) 
+            activity, pos_internal = mmc.update(velocity*dt, noise=neural_noise)
 
             # After training time is reached
             if (np.abs(TRAINING_TIME-elapsed_time) < COMMAND_TOLERANCE) and not training_done: # Command tolerance is one timestep
                 last_trained_step = int(elapsed_time//dt) #index of last training data
                 print(f'Training ends at {elapsed_time}s, planned at {TRAINING_TIME}s, Index={last_trained_step}')
-                rls_short = copy.deepcopy(rls)
-                training_done = True
-                
-            # network online prediction                        
-            prediction = rls.predict(noisy_activity)
-            prediction_pos = prediction
-            _ = rls.update(noisy_activity, pos_internal)  # returns (A, time) 
+                #rls_short = copy.deepcopy(rls)
+                pred_pos_short_log = copy.deepcopy(predicted_pos_log)
+                pred_mse_short_log = copy.deepcopy(prediction_mse_log)
+                training_done = True                     
 
+            # Long online prediction                        
+            prediction_pos = rls.predict(activity)           
             predicted_pos_log.append(prediction_pos)
             prediction_mse_log.append(np.sum((prediction_pos-pos_internal)**2)/len(pos_internal))  # was compared to pos_real before
  
-            if (elapsed_time >= TRAINING_TIME): 
-                prediction_short = rls_short.predict(noisy_activity)
-                pred_pos_short_log.append(prediction_short)
-                pred_mse_short_log.append(np.sum((prediction_short-pos_internal)**2)/len(pos_internal))
+            if (not training_done):
+                _ = rls.update(activity, pos_internal)  # returns (A, time) 
+                #prediction_short = rls_short.predict(activity)
+                #pred_pos_short_log.append(prediction_short)
+                #pred_mse_short_log.append(np.sum((prediction_short-pos_internal)**2)/len(pos_internal))
 
             # saving values
             integrated_pos_log.append(pos_internal.copy())
-            network_states.append(noisy_activity)
+            network_states.append(activity)
             activity_log.append(activity)
             #execution_time.append(time)
         position_log.append(position_real)
         acceleration_log.append(az_corrected)
         velocity_log.append(velocity)
 
-        # fail save, adjust for actual arena radius size
+        # fail save, in case drone flys too far out of arena radius
         if (np.linalg.norm(position_real) > 3*(2.5**2)):
             break
     
@@ -340,8 +335,10 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
     print('Calculating offline prediction...')
     # Predict the position using a linear model and plot the results
     pos_state = np.array(integrated_pos_log) # take 2D or 3D position and make array of it
-    X, y, y_pred, mse_mean, r2_mean = fit_linear_model(network_states, pos_state, return_shuffled=False)
-    Xtrain, Xtest, ytrain, ytest, y_pred_short, mse_mean_short, r2_mean_short = fit_linear_model(network_states, pos_state, train_index=last_trained_step, return_shuffled=False)
+    pos_state_short = pos_state[:last_trained_step+1] # for the short training take only the data until training end
+    activity_short = np.array(network_states)[:last_trained_step+1]
+    X, Y, y_pred, mse_mean, r2_mean = fit_linear_model(network_states, pos_state, train_index=last_trained_step, return_shuffled=False)
+    X, Y, y_pred_short, mse_mean_short, r2_mean_short = fit_linear_model(activity_short, pos_state_short, return_shuffled=False)
     print(' - Predicted location data')
     if (trial == 0):
         print('Saving data...')
@@ -376,7 +373,7 @@ def main(ID, gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_sc
             #'mse shuffeled short' : mse_shuffeled_short,
             'r2 mean short' : r2_mean_short,
             #'r2 shuffeled short' : r2_shuffeled_short,
-            'rls convergence matrix' : rls.convergence_metrics.copy()
+            #'rls convergence matrix' : rls.convergence_metrics.copy()
             }
         filename = f'Data {ID}.pickle'
         save_object(data, f'{results_dir}\\{filename}')
@@ -435,13 +432,13 @@ if __name__ == '__main__':
 
     trial_per_setting = 20
 
-    #nr = [2, 3, 4, 5]
-    #spacing = [0.1, 0.2, 0.3, 0.4]
-    #gain_list = generate_gain_lists(nr, spacing, start=0.2)
-    gains = [0.2, 0.3, 0.4, 0.5]
+    nr = [3, 4, 5]
+    spacing = [0.1, 0.2, 0.3, 0.4]
+    gain_list = generate_gain_lists(nr, spacing, start=0.2)
+    #gains = [[0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
-    setting = [gains]
-    times = 20.0 * np.ones(len(setting)) #
+    setting = gain_list
+    times = 10.0 * np.ones(len(setting)) #
      #[0.05, 0.10, 0.20, 0.40, 0.60, 0.80, 1.00] #  Noise levels for each setting
     noise = 0.05 * np.ones(len(setting)) 
 
@@ -450,7 +447,7 @@ if __name__ == '__main__':
 
         print(f'Running {trial_per_setting} trials for setting {i+1}/{len(setting)}')#'')
         #id_ = f'Benchmark 3D setting{i+1}of{len(setting)}'#'{len(setting)}'
-        id_ = f'Benchmark Setting {i}of{len(setting)}'
+        id_ = f'Paper Gain Setting {i}of{len(setting)}'
         data_all = []
 
         results_dir = f"Results\\ID {id_}"
