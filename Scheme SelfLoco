@@ -1,0 +1,47 @@
+run Trials
+    gathering: position + activity
+    send data to main
+    save data to file
+    repeat till last trial 
+ 
+load each trial iteratively in main and send data to decoding:    
+    run full train+test on rr&rls on parallel
+        save result to conserve memory
+    determine 80% cutoff for data
+    run novelty train+test on rr&rls on parallel
+        save results
+
+Gather all results of 1 trial (position, activity, decoding performance) in one file
+purge not needed files(?)
+
+For running decoder: (step 8,11)
+For each trial:
+
+    set-up training and test sets as shareable resource (as copies)?
+        Training data:
+            1 all 
+            5 temporal intact folds
+        Test Data:
+            5 temporal intact folds (re-use training folds and ensure coupled train-test is non-overlaping) 
+            
+    start all decoder training in parallel, start the testing once training is done
+        1 rls on full train
+            5 Tests on temporal intact 5K-folds
+        1 RR on full train
+            5 Tests on same test sets as above
+            
+            (Split full train and novelty decoding in different time windows to conserve memory?)
+            
+        5 rls on novelty (on 5 periodal time shuffled folds)
+            Test on remainding fold
+        5 RR on novelty (5K-folds CV)
+            Test on remainding fold
+            
+    get mean over the 4(2?) testing method, shape:(meth=4, time) 
+    purge not needed memory
+    Save data of all trials in same file
+After last trial:
+    load save file
+    get average over trials
+    save in new file with ID of the setting (gains, time, noise used)
+    purge not necessary data (files + memory)
