@@ -10,8 +10,12 @@ The simulation logs the drone's position and grid network activity, then visuali
 predicts the drone's path using a linear model.
 """
 
+from multiprocessing import Pool
+from functools import partial
 import os
+from turtle import position
 import numpy as np
+from sklearn.linear_model import Ridge
 from controller import Robot
 from controller import Supervisor
 from DroneController import DroneController
@@ -22,6 +26,8 @@ from PredictionModel import fit_linear_model
 from PredictionModel import OptimisedRLS
 import copy
 from time import perf_counter
+from concurrent.futures import ProcessPoolExecutor
+from tqdm import tqdm
 
 # ---------------- Simulation Parameters ----------------
 FLYING_ATTITUDE = 0                 # Base altitude (z-value) for flying
@@ -84,6 +90,23 @@ def visited_volume_percentages(trajectory, bounds, voxel_size=0.05, t=-1):
 
     return pct_up_to_t, pct_total
 
+def generate_gain_lists(Lsize, Lspacing, start=0.1):
+    '''
+    Generates a list of gains according to the desired sizes and spacings
+
+    :param Lsize: list of ints containing the amount of gains 
+    :param Lspacing: list of floats containing the constant increase between the gains
+
+    Return:
+    - an inhomogenous list of shape (len(Lsize)*len(Lspacing), Lsize) containing lists of gains
+    '''
+    gain_list = []
+
+    for n in Lsize:
+        for s in Lspacing:
+            gains = [round(start + i * s, 1) for i in range(n)]
+            gain_list.append(gains)
+    return gain_list
 
 def save_object(obj, fname='data.pickle'):
     '''
@@ -173,7 +196,7 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.25):
     #print(f'{new_direction}, size={np.linalg.norm(new_direction)}')
     return new_direction * magnitude
 
-def main(gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_scales=(0 , 0), angular_std=0.33, two_dim=False, results_dir=None, trial=0):
+def simulate_webots(gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_scales=(0 , 0), angular_std=0.33, two_dim=False, results_dir=None, trial=0):
     # Initialize simulation components
     robot = robot_
     timestep_ms = int(robot.getBasicTimeStep())
@@ -261,17 +284,258 @@ def main(gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_scales
         }
     return data
 
-def run_rls(train_pos, train_act, test_pos, test_act, act_shape):
-    if  len(train_pos) != len(train_act) or len(test_pos) != len(test_act):
-        print('Error! Train or Test sets are not of equal size')
-        break
-    
-    rls = OptimisedRLS(act_shape, num_outputs=3, lambda_=0.999, delta=1e2)
-    for t, (pos, act) in enumerate(zip(train_pos, train_act)): 
-        rls.update(act, pos)
-    
-    mse = zeros(shape=len(test_pos))
+def create_k_folds(X, Y, k):
+    """
+    Create K folds of two multi-dimensional arrays X and Y, preserving temporal connection.
+
+    Parameters:
+    - X: numpy.ndarray, shape (t, ...)
+    - Y: numpy.ndarray, shape (t, ...)
+    - k: int, number of folds
+
+    Returns:
+    - folds: list of tuples, each tuple contains (X_fold, Y_fold) of shape (fold_size, ...)
+    """
+    t = X.shape[0]
+    if t != Y.shape[0]:
+        raise ValueError("X and Y must have the same first dimension (t).")
+
+    fold_size = t // k
+    folds = []
+
+    for i in range(k):
+        start = i * fold_size
+        end = (i + 1) * fold_size if i != k - 1 else t  # Handle last fold
+
+        X_fold = X[start:end]
+        Y_fold = Y[start:end]
+
+        folds.append((X_fold, Y_fold))
+
+    return folds
+
+def process_fold(i, folds, activity_shape):
+    print(f'Processing Fold {i+1} of {len(folds)}')
+    test_act, test_pos = folds[i]
+    train_act = np.vstack([folds[j][0] for j in range(len(folds)) if j != i])
+    train_pos = np.vstack([folds[j][1] for j in range(len(folds)) if j != i])
+
+    # Train and test RR model
+    y_pred_rr_i, mse_rr_i, r2_rr_i, _ = fit_linear_model(train_act, train_pos, test_act, test_pos)
+
+    # Train and test RLS model
+    rls_model = OptimisedRLS(activity_shape, num_outputs=3, lambda_=0.999, delta=1e2)
+    for t, (pos, act) in enumerate(zip(train_pos, train_act)):
+        rls_model.update(act, pos)
+
+    pred_pos = np.zeros(shape=(len(test_pos), 3))
+    mse = np.zeros(shape=len(test_pos))
     for t, (pos, act) in enumerate(zip(test_pos, test_act)):
-        pred_pos = rls.predict(act)
-        mse[t] = (test_pos - pred_pos)**2
-    
+        pred_pos[t] = rls_model.predict(act)
+        mse[t] = np.mean((test_pos[t] - pred_pos[t])**2)
+    avg_mse = np.mean(mse)
+    r2 = 1 - (np.sum(mse) / np.sum((test_pos - np.mean(train_pos, axis=0))**2))
+
+    return (y_pred_rr_i, mse_rr_i, r2_rr_i, pred_pos, avg_mse, r2)
+
+def run_decoders(data, n_folds=5, n_processes=10):
+    print('Running Decoders')
+    position = np.array(data['position'])
+    activity = np.array(data['activity']).reshape(len(position), -1)
+
+    k_folds = n_folds
+    folds = create_k_folds(activity, position, k_folds)
+
+    # Run overfit case
+    full_train_pos = np.vstack((position, position))
+    full_train_act = np.vstack((activity, activity))
+
+    print('Training Overfit Models')
+    # Train Ridge Regression model
+    rr_model = Ridge(alpha=1.0)
+    rr_model.fit(full_train_act, full_train_pos)
+
+    # Train RLS model
+    rls_model = OptimisedRLS(activity.shape[1], num_outputs=3, lambda_=0.999, delta=1e2)
+    for t, (pos, act) in tqdm(enumerate(zip(full_train_pos, full_train_act))):
+        rls_model.update(act, pos)
+
+    # Initialize lists to store predictions for each fold
+    y_pred_rr_overfit = []
+    mse_rr_overfit = []
+    r2_rr_overfit = []
+    y_pred_rls_overfit = []
+    mse_rls_overfit = []
+    r2_rls_overfit = []
+
+    for i in tqdm(range(k_folds), desc=f'Testing Overfit Models on {k_folds} Folds'):
+        _, test_pos = folds[i]
+        test_act = np.vstack([folds[j][0] for j in range(k_folds) if j == i])
+
+        # Test RR model
+        y_pred_rr_i, mse_rr_i, r2_rr_i, _ = fit_linear_model(
+            full_train_act, full_train_pos, test_act, test_pos, model=rr_model
+        )
+        y_pred_rr_overfit.append(y_pred_rr_i)
+        mse_rr_overfit.append(mse_rr_i)
+        r2_rr_overfit.append(r2_rr_i)
+
+        # Test RLS model
+        pred_pos = np.zeros(shape=(len(test_pos), 3))
+        mse = np.zeros(shape=len(test_pos))
+        for t, (pos, act) in enumerate(zip(test_pos, test_act)):
+            pred_pos[t] = rls_model.predict(act)
+            mse[t] = np.mean((test_pos[t] - pred_pos[t])**2)
+        avg_mse = np.mean(mse)
+        r2 = 1 - (np.sum(mse) / np.sum((test_pos - np.mean(position, axis=0))**2))
+        y_pred_rls_overfit.append(pred_pos)
+        mse_rls_overfit.append(avg_mse)
+        r2_rls_overfit.append(r2)
+
+    # Concatenate predictions for all folds
+    y_pred_rr_overfit = np.concatenate(y_pred_rr_overfit)
+    y_pred_rls_overfit = np.concatenate(y_pred_rls_overfit)
+
+    print('Running Non-Overfit Models')
+    activity_shape = activity.shape[1]
+
+    # Run non-overfit case
+    y_pred_rr = []
+    mse_rr = []
+    r2_rr = []
+    y_pred_rls = []
+    mse_rls = []
+    r2_rls = []
+
+    # Prepare arguments for all processes
+    with Pool(processes=n_processes) as pool:
+         process_fold_with_args = partial(process_fold, folds=folds, activity_shape=activity_shape)
+         results = pool.map(process_fold_with_args, range(k_folds))
+
+    # Combine results for non-overfit case
+    for y_rr, m_rr, r_rr, y_rls, m_rls, r_rls in results:
+        y_pred_rr.append(y_rr)
+        mse_rr.append(m_rr)
+        r2_rr.append(r_rr)
+        y_pred_rls.append(y_rls)
+        mse_rls.append(m_rls)
+        r2_rls.append(r_rls)
+
+    # Concatenate predictions for all folds
+    y_pred_rr = np.concatenate(y_pred_rr)
+    y_pred_rls = np.concatenate(y_pred_rls)
+
+    # Combine results from both cases
+    results = {
+            'y_pred_rr overfit': y_pred_rr_overfit,
+            'mse_rr overfit': np.mean(mse_rr_overfit),
+            'r2_rr overfit': np.mean(r2_rr_overfit),
+            'y_pred_rls overfit': y_pred_rls_overfit,
+            'mse_rls overfit': np.mean(mse_rls_overfit),
+            'r2_rls overfit': np.mean(r2_rls_overfit),
+            'y_pred_rr non_overfit': y_pred_rr,
+            'mse_rr non_overfit': np.mean(mse_rr),
+            'r2_rr non_overfit': np.mean(r2_rr),
+            'y_pred_rls non_overfit': y_pred_rls,
+            'mse_rls non_overfit': np.mean(mse_rls),
+            'r2_rls non_overfit': np.mean(r2_rls)
+    }
+    return results
+
+# ---------------- Main Execution ----------------
+if __name__ == "__main__":
+    robot = Robot()
+    supervisor = Supervisor()
+    robot_node = supervisor.getFromDef("Crazyflie")
+    trans_field = robot_node.getField("translation")
+    INITIAL = [0, 0, 0]
+
+    trial_per_setting = 1
+
+    # Generate Gain Lists for Benchmark
+    nr = [3, 4, 5]
+    spacing = [0.1, 0.2, 0.3, 0.4]
+    gain_list = generate_gain_lists(nr, spacing, start=0.2)
+
+    # Name for the results folder (used for id)
+    name = 'Paper Test noise'
+
+    ###################### Test Setting
+    #setting_name = 'test'
+    #gains = [[0.2, 0.3, 0.4, 0.5]] #Example gain setting
+    #setting = gains #list of parameter to test
+    #times = 5.0 * np.ones(len(setting)) # in minutes
+    #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+
+    #################### Benchmark Settings
+    #setting_name = 'gain variation'
+    #gains = gain_list
+    #setting = gains
+    #times = 10.0 * np.ones(len(setting)) # in minutes
+    #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+
+    ##################### Time Variation Settings
+    #setting_name = 'time variation'
+    #times = [10, 20, 30, 40] # in minutes
+    #setting = times
+    #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
+    #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+
+    ###################### Noise Variation Settings
+    setting_name = 'noise variation'
+    noise = [0.10, 0.20, 0.40, 0.60, 0.80, 1.00]
+    setting = noise
+    times = 10.0 * np.ones(len(setting)) # in minutes
+    gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
+
+    for i, var in enumerate(setting):
+        dim2 = False
+
+        print(f'Running {trial_per_setting} trials for setting {i+1}/{len(setting)}')#'')
+        #id_ = f'Benchmark 3D setting{i+1}of{len(setting)}'#'{len(setting)}'
+        id_ = f'{name} Setting {i}of{len(setting)}'
+        data_all = []
+
+        results_dir = f"Results\\ID {id_}"
+        os.makedirs(results_dir, exist_ok=True)
+
+        for trial in range(trial_per_setting):
+            print(f'\n--- Trial {trial+1} of {trial_per_setting} for setting {i+1} of {len(setting)} ---')
+            # Generate webots data
+            trans_field.setSFVec3f(INITIAL)
+            robot_node.resetPhysics()
+            data = simulate_webots(gains=gains[i], robot_=robot, simulated_minutes=times[i],
+               training_fraction=0.8, noise_scales=(noise[i], 0.00), angular_std=0.33, two_dim=dim2,
+              results_dir=results_dir, trial=trial)
+            
+            # Run decoders
+            decoder_results = run_decoders(data)
+            data.update(decoder_results) # add decoder results to data of trial
+            decoder_results.update({'volume': data['volume visited']}) # add visited volume to the values to avg over trials
+
+            # Save and append data
+            data_all.append(decoder_results)
+            save_object(data, f'{results_dir}\\data_trial{trial}.pickle')
+
+        summary = {}
+        for key in data_all[0].keys():
+            # stack along new axis and average
+            vals = [m[key] for m in data_all]
+            flat_vals = np.array(vals).flatten()
+
+            print(f"Key: {key}")
+            print(f"Type: {type(vals)}")
+            print(f"Shape: {np.array(vals).shape}")
+            #print(f"Sample values: {vals[:3]}")  # First 3 values
+            print(f"Min/Max: {np.min(vals)}, {np.max(vals)}")
+            print("---")
+            summary[f'median {key}'] = np.mean(flat_vals)
+            summary[f'std {key}'] = np.std(flat_vals)
+            summary[f'iqr {key}'] = np.percentile(flat_vals, [25, 75])
+
+        summary['setting var'] = setting
+        summary['setting mode'] = setting_name
+        save_object(summary, f'{results_dir}\\summary.pickle')
+
+        print(f"\n→ All trials done. Summary saved to {results_dir}\\Summary.pickle")
+    print("Finished all settings. Completed execution.")

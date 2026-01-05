@@ -253,7 +253,6 @@ def _update_network_jit(network_activity, distance_matrix, gains, rotated_veloci
             net_activity = (1 - tau) * b_activity[i] + tau * (b_activity[i] / (sum_activity + epsilon)) #+ noise[a, i]
             if net_activity < 0:
                 net_activity = 0
-            print(np.max(net_activity))
             temp_activity[i] = net_activity
         
         # RANGE NORMALIZATION: Scale to use full 0-1 range

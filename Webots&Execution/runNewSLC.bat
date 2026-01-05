@@ -1,0 +1,20 @@
+@echo off
+
+REM Activate the conda environment
+call conda activate myenv
+
+echo "Running the Crazyflie controller"
+
+REM Change to the Webots directory
+cd %WEBOTS%
+
+REM Execute the controller script with Webots
+webots-controller.exe %SLcontroller%\SelfLocNewMain.py
+
+REM Change back to the specified home directory
+cd "%SLcontroller%\Webots&Execution\"
+
+REM Deactivate the conda environment
+call conda deactivate
+
+@echo on

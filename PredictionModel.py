@@ -9,7 +9,22 @@ from sklearn.model_selection import KFold, cross_val_predict, cross_val_score
 from sklearn.metrics import mean_squared_error, r2_score
 from numba import jit, cuda
 
-def fit_linear_model(activity_array, pos, train_index=None, return_shuffled=False, alpha=1.0, cv_folds=8, seed=42):
+def fit_linear_model(x_train, y_train, x_test, y_test, model=None):
+    if len(x_train) != len(y_train) or len(x_test) != len(y_test):
+        raise ValueError("x_train and y_train must have the same length, and x_test and y_test must have the same length.")
+
+    if model is None:
+        model = Ridge(alpha=1.0)
+        model.fit(x_train, y_train)
+
+    y_pred = model.predict(x_test)
+    mse = mean_squared_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+
+    return y_pred, mse, r2, model
+    
+
+def fit_linear_model_old(activity_array, pos, train_index=None, return_shuffled=False, alpha=1.0, cv_folds=8, seed=42):
     '''
     Predicts the location of the agent based on the activity level of the network
     :param activity_array: np.array featuring the time history of network activity. shape (ntime, (nmodules,) ngain, nneuron)
