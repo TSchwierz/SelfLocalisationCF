@@ -450,24 +450,25 @@ if __name__ == "__main__":
     trans_field = robot_node.getField("translation")
     INITIAL = [0, 0, 0]
 
-    trial_per_setting = 1
+    trial_per_setting = 20
 
     # Generate Gain Lists for Benchmark
     nr = [3, 4, 5]
     spacing = [0.1, 0.2, 0.3, 0.4]
     gain_list = generate_gain_lists(nr, spacing, start=0.2)
+    gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
     # Name for the results folder (used for id)
-    name = 'Paper Test noise'
+    name = 'computational and noise test'
 
     ###################### Test Setting
-    #setting_name = 'test'
-    #gains = [[0.2, 0.3, 0.4, 0.5]] #Example gain setting
-    #setting = gains #list of parameter to test
-    #times = 5.0 * np.ones(len(setting)) # in minutes
-    #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+    setting_name = 'test'
+    gains = gain_list #[[0.2, 0.3, 0.4, 0.5]] #Example gain setting
+    setting = gains #list of parameter to test
+    times = 5.0 * np.ones(len(setting)) # in minutes
+    noise = 0.8 * np.ones(len(setting)) # in fraction of max firing rate
 
-    #################### Benchmark Settings
+    #################### Benchmark Gain Settings
     #setting_name = 'gain variation'
     #gains = gain_list
     #setting = gains
@@ -482,11 +483,11 @@ if __name__ == "__main__":
     #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
     ###################### Noise Variation Settings
-    setting_name = 'noise variation'
-    noise = [0.10, 0.20, 0.40, 0.60, 0.80, 1.00]
-    setting = noise
-    times = 10.0 * np.ones(len(setting)) # in minutes
-    gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
+    #setting_name = 'noise variation'
+    #noise = [0.10, 0.20, 0.40, 0.60, 0.80, 1.00]
+    #setting = noise
+    #times = 10.0 * np.ones(len(setting)) # in minutes
+    #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
 
     for i, var in enumerate(setting):
         dim2 = False
@@ -500,6 +501,7 @@ if __name__ == "__main__":
         os.makedirs(results_dir, exist_ok=True)
 
         for trial in range(trial_per_setting):
+            t1 = perf_counter()
             print(f'\n--- Trial {trial+1} of {trial_per_setting} for setting {i+1} of {len(setting)} ---')
             # Generate webots data
             trans_field.setSFVec3f(INITIAL)
@@ -512,6 +514,9 @@ if __name__ == "__main__":
             decoder_results = run_decoders(data)
             data.update(decoder_results) # add decoder results to data of trial
             decoder_results.update({'volume': data['volume visited']}) # add visited volume to the values to avg over trials
+
+            time_taken = perf_counter() - t1
+            decoder_results['time taken'] = time_taken
 
             # Save and append data
             data_all.append(decoder_results)

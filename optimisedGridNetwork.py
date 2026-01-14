@@ -191,7 +191,7 @@ class GridNetwork:
         # Noise is relative value to the activity, i.e., 0.1 means activity * 1.1.
         noise = np.zeros_like(network_activity_copy)
         if noise_sigma > 0:
-            noise = noise_sigma* np.random.normal(0, 1, np.shape(network_activity_copy))
+            noise = max(-1, noise_sigma* np.random.normal(0, 1, np.shape(network_activity_copy)))
         noise = np.ascontiguousarray(noise, dtype=np.float64)
 
         # Update all layers at once using JIT-compiled function
@@ -250,10 +250,10 @@ def _update_network_jit(network_activity, distance_matrix, gains, rotated_veloci
         temp_activity = np.zeros(n_neurons)
         
         for i in range(n_neurons):
-            net_activity = (1 - tau) * b_activity[i] + tau * (b_activity[i] / (sum_activity + epsilon)) #+ noise[a, i]
+            net_activity = ((1 - tau) * b_activity[i] + tau * (b_activity[i] / (sum_activity + epsilon)) ) * (1 + noise[a, i])
             if net_activity < 0:
                 net_activity = 0
-            temp_activity[i] = net_activity
+            temp_activity[i] = net_activity 
         
         # RANGE NORMALIZATION: Scale to use full 0-1 range
         min_val = temp_activity[0]
