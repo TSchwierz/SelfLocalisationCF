@@ -456,17 +456,17 @@ if __name__ == "__main__":
     nr = [3, 4, 5]
     spacing = [0.1, 0.2, 0.3, 0.4]
     gain_list = generate_gain_lists(nr, spacing, start=0.2)
-    gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
+    #gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
     # Name for the results folder (used for id)
-    name = 'computational and noise test'
+    name = 'Paper Noise Variation'
 
     ###################### Test Setting
-    setting_name = 'test'
-    gains = gain_list #[[0.2, 0.3, 0.4, 0.5]] #Example gain setting
-    setting = gains #list of parameter to test
-    times = 5.0 * np.ones(len(setting)) # in minutes
-    noise = 0.8 * np.ones(len(setting)) # in fraction of max firing rate
+    #setting_name = 'test'
+    #gains = gain_list #[[0.2, 0.3, 0.4, 0.5]] #Example gain setting
+    #setting = gains #list of parameter to test
+    #times = 10.0 * np.ones(len(setting)) # in minutes
+    #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
     #################### Benchmark Gain Settings
     #setting_name = 'gain variation'
@@ -483,11 +483,11 @@ if __name__ == "__main__":
     #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
     ###################### Noise Variation Settings
-    #setting_name = 'noise variation'
-    #noise = [0.10, 0.20, 0.40, 0.60, 0.80, 1.00]
-    #setting = noise
-    #times = 10.0 * np.ones(len(setting)) # in minutes
-    #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
+    setting_name = 'noise variation'
+    noise = [0.10, 0.20, 0.40, 0.60, 0.80, 1.00]
+    setting = noise
+    times = 10.0 * np.ones(len(setting)) # in minutes
+    gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
 
     for i, var in enumerate(setting):
         dim2 = False
