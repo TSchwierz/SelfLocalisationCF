@@ -23,15 +23,11 @@ from optimisedGridNetwork import MixedModularCoder
 from datetime import datetime
 import pickle
 from PredictionModel import fit_linear_model
-from PredictionModel import OptimisedRLS, OptimisedRLSVectorized
+from PredictionModel import OptimisedRLS
 import copy
 from time import perf_counter
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
-from sklearn.metrics import mean_squared_error, r2_score
-from joblib import Parallel, delayed
-from multiprocessing import shared_memory
-from functools import partial
 
 # ---------------- Simulation Parameters ----------------
 FLYING_ATTITUDE = 0                 # Base altitude (z-value) for flying
@@ -318,315 +314,134 @@ def create_k_folds(X, Y, k):
 
     return folds
 
-def create_shared_memory_array(array, name_prefix):
-    """
-    Create a shared memory block for a numpy array.
-    
-    Returns:
-    - shm: SharedMemory object
-    - shape: Original array shape
-    - dtype: Original array dtype
-    """
-    shm = shared_memory.SharedMemory(create=True, size=array.nbytes, name=f"{name_prefix}_{os.getpid()}")
-    shared_array = np.ndarray(array.shape, dtype=array.dtype, buffer=shm.buf)
-    shared_array[:] = array[:]
-    return shm, array.shape, array.dtype
-
-
-def get_shared_memory_array(shm_name, shape, dtype):
-    """Reconstruct numpy array from shared memory."""
-    shm = shared_memory.SharedMemory(name=shm_name)
-    array = np.ndarray(shape, dtype=dtype, buffer=shm.buf)
-    return array, shm
-
-
-def process_overfit_window_optimized(i, overfit_test_folds, rr_weights_shm_name, rr_weights_shape, 
-                                      rls_weights_shm_name, rls_weights_shape, weights_dtype,
-                                      train_pos_overfit, k_folds):
-    """
-    Optimized version with vectorized predictions and shared memory.
-    """
-    test_act_window, test_pos_window = overfit_test_folds[i]
-    
-    # Reconstruct models from shared memory
-    rr_weights, rr_shm = get_shared_memory_array(rr_weights_shm_name, rr_weights_shape, weights_dtype)
-    rls_weights, rls_shm = get_shared_memory_array(rls_weights_shm_name, rls_weights_shape, weights_dtype)
-    
-    # === Ridge Regression - Vectorized Prediction ===
-    # Manual prediction: X @ weights (sklearn Ridge stores coef_ as (n_outputs, n_features))
-    y_pred_rr_i = test_act_window @ rr_weights.T
-    mse_rr_i = mean_squared_error(test_pos_window, y_pred_rr_i)
-    r2_rr_i = r2_score(test_pos_window, y_pred_rr_i)
-    
-    # === RLS - Vectorized Prediction ===
-    pred_pos = test_act_window @ rls_weights  # Shape: (num_timesteps, 3)
-    
-    # Vectorized MSE calculation
-    squared_errors = (test_pos_window - pred_pos)**2
-    mse_per_step = np.mean(squared_errors, axis=1)
-    avg_mse = np.mean(mse_per_step)
-    
-    # Vectorized R² calculation
-    ss_res = np.sum(squared_errors)
-    ss_tot = np.sum((test_pos_window - np.mean(train_pos_overfit, axis=0))**2)
-    r2 = 1 - (ss_res / ss_tot)
-    
-    # Cleanup shared memory references
-    rr_shm.close()
-    rls_shm.close()
-    
-    return (y_pred_rr_i, mse_rr_i, r2_rr_i, pred_pos, avg_mse, r2)
-
-
-def process_fold_heldout_optimized(i, folds, activity_shape):
-    """
-    Optimized held-out fold processing with vectorized RLS predictions.
-    """
+def process_fold(i, folds, activity_shape):
+    print(f'Processing Fold {i+1} of {len(folds)}')
     test_act, test_pos = folds[i]
     train_act = np.vstack([folds[j][0] for j in range(len(folds)) if j != i])
     train_pos = np.vstack([folds[j][1] for j in range(len(folds)) if j != i])
-    
-    # === Train and test Ridge Regression ===
-    rr_model = Ridge(alpha=1.0)
-    rr_model.fit(train_act, train_pos)
-    y_pred_rr_i = rr_model.predict(test_act)
-    mse_rr_i = mean_squared_error(test_pos, y_pred_rr_i)
-    r2_rr_i = r2_score(test_pos, y_pred_rr_i)
-    
-    # === Train RLS model (sequential - unavoidable) ===
+
+    # Train and test RR model
+    y_pred_rr_i, mse_rr_i, r2_rr_i, _ = fit_linear_model(train_act, train_pos, test_act, test_pos)
+
+    # Train and test RLS model
     rls_model = OptimisedRLS(activity_shape, num_outputs=3, lambda_=0.999, delta=1e2)
     for t, (pos, act) in enumerate(zip(train_pos, train_act)):
         rls_model.update(act, pos)
-    
-    # === Test RLS model - VECTORIZED ===
-    pred_pos = test_act @ rls_model.A  # Vectorized prediction
-    
-    # Vectorized MSE and R² calculation
-    squared_errors = (test_pos - pred_pos)**2
-    mse_per_step = np.mean(squared_errors, axis=1)
-    avg_mse = np.mean(mse_per_step)
-    ss_res = np.sum(squared_errors)
-    ss_tot = np.sum((test_pos - np.mean(train_pos, axis=0))**2)
-    r2 = 1 - (ss_res / ss_tot)
-    
+
+    pred_pos = np.zeros(shape=(len(test_pos), 3))
+    mse = np.zeros(shape=len(test_pos))
+    for t, (pos, act) in enumerate(zip(test_pos, test_act)):
+        pred_pos[t] = rls_model.predict(act)
+        mse[t] = np.mean((test_pos[t] - pred_pos[t])**2)
+    avg_mse = np.mean(mse)
+    r2 = 1 - (np.sum(mse) / np.sum((test_pos - np.mean(train_pos, axis=0))**2))
+
     return (y_pred_rr_i, mse_rr_i, r2_rr_i, pred_pos, avg_mse, r2)
 
-
-def run_decoders_optimized(data, n_folds=5, n_jobs=-1):
-    """
-    Fully optimized decoder evaluation with:
-    - Vectorized predictions for both RR and RLS
-    - Shared memory for model weights
-    - joblib parallelization
-    - GPU-ready structure (can swap numpy for cupy)
-    
-    Parameters:
-    - n_jobs: Number of parallel jobs (-1 uses all cores, -2 uses all but one)
-    """
-    print('Running Optimized Decoders')
+def run_decoders(data, n_folds=5, n_processes=10):
+    print('Running Decoders')
     position = np.array(data['position'])
     activity = np.array(data['activity']).reshape(len(position), -1)
+
     k_folds = n_folds
-    
-    # Create k-fold splits
     folds = create_k_folds(activity, position, k_folds)
-    
-    # ====================================================================
-    # OVERFITTING (IN-SAMPLE) PROTOCOL - OPTIMIZED
-    # ====================================================================
-    print('\n' + '='*70)
-    print('OVERFITTING (IN-SAMPLE) PROTOCOL')
-    print('='*70)
-    
-    # Use 80% of data for training
-    train_folds_overfit = int(0.8 * k_folds)
-    train_act_overfit = np.vstack([folds[j][0] for j in range(train_folds_overfit)])
-    train_pos_overfit = np.vstack([folds[j][1] for j in range(train_folds_overfit)])
-    
-    print(f'Training on {train_folds_overfit}/{k_folds} folds ({len(train_act_overfit)} timesteps)')
-    
-    # === Train Ridge Regression ===
-    print('Training Ridge Regression model...')
-    t_start = perf_counter()
-    rr_model_overfit = Ridge(alpha=1.0)
-    rr_model_overfit.fit(train_act_overfit, train_pos_overfit)
-    print(f'  ✓ Completed in {perf_counter() - t_start:.2f}s')
-    
-    # === Train RLS model ===
-    print('Training RLS model...')
-    t_start = perf_counter()
-    rls_model_overfit = OptimisedRLS(activity.shape[1], num_outputs=3, lambda_=0.999, delta=1e2)
-    for t, (pos, act) in enumerate(zip(train_pos_overfit, train_act_overfit)):
-        rls_model_overfit.update(act, pos)
-        if (t + 1) % 10000 == 0:
-            print(f'  Progress: {t+1}/{len(train_pos_overfit)} timesteps', end='\r')
-    print(f'\n  ✓ Completed in {perf_counter() - t_start:.2f}s')
-    
-    # === Create shared memory for model weights ===
-    print('Creating shared memory for model weights...')
-    rr_weights_shm, rr_shape, rr_dtype = create_shared_memory_array(
-        rr_model_overfit.coef_, "rr_weights"
-    )
-    rls_weights_shm, rls_shape, rls_dtype = create_shared_memory_array(
-        rls_model_overfit.A, "rls_weights"
-    )
-    
-    # Create test folds from training data
-    overfit_test_folds = create_k_folds(train_act_overfit, train_pos_overfit, k_folds)
-    
-    # === Parallel testing on windows ===
-    print(f'\nTesting on {k_folds} windows (parallelized with joblib, n_jobs={n_jobs})...')
-    t_start = perf_counter()
-    
-    overfit_results = Parallel(n_jobs=n_jobs, verbose=5)(
-        delayed(process_overfit_window_optimized)(
-            i, overfit_test_folds, 
-            rr_weights_shm.name, rr_shape,
-            rls_weights_shm.name, rls_shape,
-            rr_dtype, train_pos_overfit, k_folds
-        ) for i in range(k_folds)
-    )
-    
-    print(f'  ✓ Completed in {perf_counter() - t_start:.2f}s')
-    
-    # Cleanup shared memory
-    rr_weights_shm.close()
-    rr_weights_shm.unlink()
-    rls_weights_shm.close()
-    rls_weights_shm.unlink()
-    
-    # Unpack results
+
+    # Run overfit case
+    full_train_pos = np.vstack((position, position))
+    full_train_act = np.vstack((activity, activity))
+
+    print('Training Overfit Models')
+    # Train Ridge Regression model
+    rr_model = Ridge(alpha=1.0)
+    rr_model.fit(full_train_act, full_train_pos)
+
+    # Train RLS model
+    rls_model = OptimisedRLS(activity.shape[1], num_outputs=3, lambda_=0.999, delta=1e2)
+    for t, (pos, act) in tqdm(enumerate(zip(full_train_pos, full_train_act))):
+        rls_model.update(act, pos)
+
+    # Initialize lists to store predictions for each fold
     y_pred_rr_overfit = []
     mse_rr_overfit = []
     r2_rr_overfit = []
     y_pred_rls_overfit = []
     mse_rls_overfit = []
     r2_rls_overfit = []
-    
-    for y_rr, m_rr, r_rr, y_rls, m_rls, r_rls in overfit_results:
-        y_pred_rr_overfit.append(y_rr)
-        mse_rr_overfit.append(m_rr)
-        r2_rr_overfit.append(r_rr)
-        y_pred_rls_overfit.append(y_rls)
-        mse_rls_overfit.append(m_rls)
-        r2_rls_overfit.append(r_rls)
-    
+
+    print(f'Testing Overfit Models on {k_folds} Folds')
+    for i in tqdm(range(k_folds)):
+        _, test_pos = folds[i]
+        test_act = np.vstack([folds[j][0] for j in range(k_folds) if j == i])
+
+        # Test RR model
+        y_pred_rr_i, mse_rr_i, r2_rr_i, _ = fit_linear_model(
+            full_train_act, full_train_pos, test_act, test_pos, model=rr_model
+        )
+        y_pred_rr_overfit.append(y_pred_rr_i)
+        mse_rr_overfit.append(mse_rr_i)
+        r2_rr_overfit.append(r2_rr_i)
+
+        # Test RLS model
+        pred_pos = np.zeros(shape=(len(test_pos), 3))
+        mse = np.zeros(shape=len(test_pos))
+        for t, (pos, act) in enumerate(zip(test_pos, test_act)):
+            pred_pos[t] = rls_model.predict(act)
+            mse[t] = np.mean((test_pos[t] - pred_pos[t])**2)
+        avg_mse = np.mean(mse)
+        r2 = 1 - (np.sum(mse) / np.sum((test_pos - np.mean(position, axis=0))**2))
+        y_pred_rls_overfit.append(pred_pos)
+        mse_rls_overfit.append(avg_mse)
+        r2_rls_overfit.append(r2)
+
+    # Concatenate predictions for all folds
     y_pred_rr_overfit = np.concatenate(y_pred_rr_overfit)
     y_pred_rls_overfit = np.concatenate(y_pred_rls_overfit)
-    
-    print(f'\nOverfit Results:')
-    print(f'  Ridge Regression - MSE: {np.mean(mse_rr_overfit):.6f}, R²: {np.mean(r2_rr_overfit):.4f}')
-    print(f'  RLS              - MSE: {np.mean(mse_rls_overfit):.6f}, R²: {np.mean(r2_rls_overfit):.4f}')
-    
-    # ====================================================================
-    # CROSS-VALIDATION (HELD-OUT) PROTOCOL - OPTIMIZED
-    # ====================================================================
-    print('\n' + '='*70)
-    print('CROSS-VALIDATION (HELD-OUT) PROTOCOL')
-    print('='*70)
-    print(f'Running {k_folds}-fold cross-validation (parallelized with joblib, n_jobs={n_jobs})...')
-    
-    t_start = perf_counter()
-    heldout_results = Parallel(n_jobs=n_jobs, verbose=5)(
-        delayed(process_fold_heldout_optimized)(
-            i, folds, activity.shape[1]
-        ) for i in range(k_folds)
-    )
-    print(f'  ✓ Completed in {perf_counter() - t_start:.2f}s')
-    
-    # Unpack results
+
+    print('Running Non-Overfit Models')
+    activity_shape = activity.shape[1]
+
+    # Run non-overfit case
     y_pred_rr = []
     mse_rr = []
     r2_rr = []
     y_pred_rls = []
     mse_rls = []
     r2_rls = []
-    
-    for y_rr, m_rr, r_rr, y_rls, m_rls, r_rls in heldout_results:
+
+    # Prepare arguments for all processes
+    with Pool(processes=n_processes) as pool:
+         process_fold_with_args = partial(process_fold, folds=folds, activity_shape=activity_shape)
+         results = pool.map(process_fold_with_args, range(k_folds))
+
+    # Combine results for non-overfit case
+    for y_rr, m_rr, r_rr, y_rls, m_rls, r_rls in results:
         y_pred_rr.append(y_rr)
         mse_rr.append(m_rr)
         r2_rr.append(r_rr)
         y_pred_rls.append(y_rls)
         mse_rls.append(m_rls)
         r2_rls.append(r_rls)
-    
+
+    # Concatenate predictions for all folds
     y_pred_rr = np.concatenate(y_pred_rr)
     y_pred_rls = np.concatenate(y_pred_rls)
-    
-    print(f'\nHeld-Out Results:')
-    print(f'  Ridge Regression - MSE: {np.mean(mse_rr):.6f}, R²: {np.mean(r2_rr):.4f}')
-    print(f'  RLS              - MSE: {np.mean(mse_rls):.6f}, R²: {np.mean(r2_rls):.4f}')
-    
-    # ====================================================================
-    # COMBINE RESULTS
-    # ====================================================================
-    print('\n' + '='*70)
-    print('SUMMARY')
-    print('='*70)
-    print(f'Performance Gap (Overfit - Held-Out):')
-    print(f'  Ridge Regression - ΔR²: {np.mean(r2_rr_overfit) - np.mean(r2_rr):.4f}')
-    print(f'  RLS              - ΔR²: {np.mean(r2_rls_overfit) - np.mean(r2_rls):.4f}')
-    
-    results = {
-        'y_pred_rr_overfit': y_pred_rr_overfit,
-        'mse_rr_overfit': np.mean(mse_rr_overfit),
-        'r2_rr_overfit': np.mean(r2_rr_overfit),
-        'mse_rr_overfit_per_fold': mse_rr_overfit,
-        'r2_rr_overfit_per_fold': r2_rr_overfit,
-        
-        'y_pred_rls_overfit': y_pred_rls_overfit,
-        'mse_rls_overfit': np.mean(mse_rls_overfit),
-        'r2_rls_overfit': np.mean(r2_rls_overfit),
-        'mse_rls_overfit_per_fold': mse_rls_overfit,
-        'r2_rls_overfit_per_fold': r2_rls_overfit,
-        
-        'y_pred_rr_heldout': y_pred_rr,
-        'mse_rr_heldout': np.mean(mse_rr),
-        'r2_rr_heldout': np.mean(r2_rr),
-        'mse_rr_heldout_per_fold': mse_rr,
-        'r2_rr_heldout_per_fold': r2_rr,
-        
-        'y_pred_rls_heldout': y_pred_rls,
-        'mse_rls_heldout': np.mean(mse_rls),
-        'r2_rls_heldout': np.mean(r2_rls),
-        'mse_rls_heldout_per_fold': mse_rls,
-        'r2_rls_heldout_per_fold': r2_rls,
-    }
-    
-    return results
 
-def run_decoders_gpu(data, n_folds=5, n_jobs=-1):
-    """
-    GPU-accelerated version using CuPy.
-    Requires: pip install cupy-cuda11x (or appropriate CUDA version)
-    
-    Usage:
-    import cupy as cp
-    # Replace numpy operations with cupy in critical sections
-    """
-    try:
-        import cupy as cp
-        print("GPU acceleration enabled with CuPy")
-        
-        # Convert data to GPU
-        position_gpu = cp.array(data['position'])
-        activity_gpu = cp.array(data['activity']).reshape(len(data['position']), -1)
-        
-        # Run computations on GPU
-        # ... (rest of implementation similar but with cp instead of np)
-        
-        # Convert results back to CPU
-        # results = {k: cp.asnumpy(v) if isinstance(v, cp.ndarray) else v 
-        #           for k, v in results.items()}
-        
-        print("Note: Full GPU implementation requires additional CuPy integration")
-        print("Falling back to CPU-optimized version...")
-        
-    except ImportError:
-        print("CuPy not installed. Install with: pip install cupy-cuda11x")
-        print("Falling back to CPU-optimized version...")
-    
-    return run_decoders_optimized(data, n_folds, n_jobs)
+    # Combine results from both cases
+    results = {
+            'y_pred_rr overfit': y_pred_rr_overfit,
+            'mse_rr overfit': np.mean(mse_rr_overfit),
+            'r2_rr overfit': np.mean(r2_rr_overfit),
+            'y_pred_rls overfit': y_pred_rls_overfit,
+            'mse_rls overfit': np.mean(mse_rls_overfit),
+            'r2_rls overfit': np.mean(r2_rls_overfit),
+            'y_pred_rr non_overfit': y_pred_rr,
+            'mse_rr non_overfit': np.mean(mse_rr),
+            'r2_rr non_overfit': np.mean(r2_rr),
+            'y_pred_rls non_overfit': y_pred_rls,
+            'mse_rls non_overfit': np.mean(mse_rls),
+            'r2_rls non_overfit': np.mean(r2_rls)
+    }
+    return results
 
 # ---------------- Main Execution ----------------
 if __name__ == "__main__":
@@ -650,7 +465,7 @@ if __name__ == "__main__":
     ###################### Test Setting
     setting_name = 'test'
     gains = [[0.2, 0.3, 0.4, 0.5]] #Example gain setting
-    setting = [gains] #list of parameter to test
+    setting = gains #list of parameter to test
     times = 20.0 * np.ones(len(setting)) # in minutes
     noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
@@ -669,11 +484,11 @@ if __name__ == "__main__":
     #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
     ###################### Noise Variation Settings
-    #setting_name = 'noise variation'
-    #noise = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
-    #setting = noise
-    #times = 10.0 * np.ones(len(setting)) # in minutes
-    #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
+    setting_name = 'noise variation'
+    noise = [0.10, 0.20, 0.40, 0.60, 0.80, 1.00]
+    setting = noise
+    times = 10.0 * np.ones(len(setting)) # in minutes
+    gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
 
     for i, var in enumerate(setting):
         dim2 = False
@@ -697,7 +512,7 @@ if __name__ == "__main__":
               results_dir=results_dir, trial=trial)
             
             # Run decoders
-            decoder_results = run_decoders_gpu(data)
+            decoder_results = run_decoders(data)
             data.update(decoder_results) # add decoder results to data of trial
             decoder_results.update({'volume': data['volume visited']}) # add visited volume to the values to avg over trials
 

@@ -36,7 +36,7 @@ class MixedModularCoder:
     def set_integrator(self, pos):
         self.pos_integrator = pos.copy()
 
-    def update(self, velocity, noise=False):
+    def update(self, velocity, noise=0):
         # Pre-allocate activity array
         activity = np.zeros((self.M, self.nrGains, self.mod_size//self.nrGains))
         
@@ -47,7 +47,7 @@ class MixedModularCoder:
         
         # Update each module
         for i, m in enumerate(self.Module):
-            activity[i] = m.update_network(vel2D[i])
+            activity[i] = m.update_network(vel2D[i], noise_sigma=noise)
 
         self.pos_integrator += velocity
         return activity, self.pos_integrator
@@ -191,7 +191,7 @@ class GridNetwork:
         # Noise is relative value to the activity, i.e., 0.1 means activity * 1.1.
         noise = np.zeros_like(network_activity_copy)
         if noise_sigma > 0:
-            noise = max(-1, noise_sigma* np.random.normal(0, 1, np.shape(network_activity_copy)))
+            noise = np.maximum(-1, noise_sigma* np.random.normal(0, 1, np.shape(network_activity_copy)))
         noise = np.ascontiguousarray(noise, dtype=np.float64)
 
         # Update all layers at once using JIT-compiled function

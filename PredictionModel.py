@@ -234,3 +234,31 @@ class OptimisedRLS:
         y = y.reshape(-1, 1)
         x_est = np.dot(self.A.T, y)
         return x_est.flatten()
+
+class OptimisedRLSVectorized:
+    """
+    Vectorized wrapper around OptimisedRLS for batch predictions.
+    Keeps the original sequential training but enables vectorized inference.
+    """
+    def __init__(self, base_rls_model):
+        self.A = base_rls_model.A
+        self.num_features = base_rls_model.A.shape[0]
+        self.num_outputs = base_rls_model.A.shape[1]
+    
+    def predict_batch(self, X):
+        """
+        Vectorized prediction for multiple timesteps.
+        
+        Parameters:
+        X (np.ndarray): Input features of shape (num_timesteps, num_features)
+        
+        Returns:
+        np.ndarray: Predictions of shape (num_timesteps, num_outputs)
+        """
+        return X @ self.A
+    
+    def predict(self, y):
+        """Single sample prediction for compatibility."""
+        y = y.reshape(-1, 1)
+        x_est = np.dot(self.A.T, y)
+        return x_est.flatten()
