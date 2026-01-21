@@ -191,7 +191,7 @@ class GridNetwork:
         # Noise is relative value to the activity, i.e., 0.1 means activity * 1.1.
         noise = np.zeros_like(network_activity_copy)
         if noise_sigma > 0:
-            noise = np.maximum(-1, noise_sigma* np.random.normal(0, 1, np.shape(network_activity_copy)))
+            noise = noise_sigma* np.random.normal(0, 1, np.shape(network_activity_copy))
         noise = np.ascontiguousarray(noise, dtype=np.float64)
 
         # Update all layers at once using JIT-compiled function
@@ -208,7 +208,7 @@ class GridNetwork:
         )
         
         # Update the network activity
-        self.network_activity = result
+        self.network_activity = np.clip(result, 0.0, 1.0)
         
         return result
 
@@ -250,7 +250,7 @@ def _update_network_jit(network_activity, distance_matrix, gains, rotated_veloci
         temp_activity = np.zeros(n_neurons)
         
         for i in range(n_neurons):
-            net_activity = ((1 - tau) * b_activity[i] + tau * (b_activity[i] / (sum_activity + epsilon)) ) * (1 + noise[a, i])
+            net_activity = ((1 - tau) * b_activity[i] + tau * (b_activity[i] / (sum_activity + epsilon)) )
             if net_activity < 0:
                 net_activity = 0
             temp_activity[i] = net_activity 
@@ -270,12 +270,10 @@ def _update_network_jit(network_activity, distance_matrix, gains, rotated_veloci
         activity_range = max_val - min_val
         if activity_range > epsilon:
             for i in range(n_neurons):
-                result[a, i] = (temp_activity[i] - min_val) / activity_range
-                #network_activity[a, i] = result[a, i]
+                result[a, i] = ((temp_activity[i] - min_val) / activity_range) + noise[a, i]
         else:
             # If no range, keep current values
             for i in range(n_neurons):
-                result[a, i] = temp_activity[i]
-                #network_activity[a, i] = temp_activity[i]
+                result[a, i] = temp_activity[i] + noise[a, i]
     
     return result

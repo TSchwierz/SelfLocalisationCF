@@ -8,6 +8,7 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold, cross_val_predict, cross_val_score
 from sklearn.metrics import mean_squared_error, r2_score
 from numba import jit, cuda
+import cupy as cp
 
 def fit_linear_model(x_train, y_train, x_test, y_test, model=None):
     if len(x_train) != len(y_train) or len(x_test) != len(y_test):
@@ -262,3 +263,162 @@ class OptimisedRLSVectorized:
         y = y.reshape(-1, 1)
         x_est = np.dot(self.A.T, y)
         return x_est.flatten()
+
+class OptimisedRLS_GPU:
+    """
+    GPU-accelerated Recursive Least Squares using CuPy.
+    All operations performed on GPU for maximum speed.
+    """
+    def __init__(self, num_features, num_outputs, lambda_=0.99, delta=1.0, eps=1e-10):
+        self.lambda_ = lambda_
+        self.eps = eps
+        
+        # Initialize on GPU
+        self.A = cp.zeros((num_features, num_outputs), dtype=cp.float32)
+        self.P = cp.eye(num_features, dtype=cp.float32) * delta
+        
+        # Pre-allocate GPU memory
+        self._Py = cp.zeros((num_features, 1), dtype=cp.float32)
+        self._yTPy = cp.float32(0.0)
+        self._K = cp.zeros((num_features, 1), dtype=cp.float32)
+        self._error = cp.zeros((num_outputs, 1), dtype=cp.float32)
+        self._KyTP = cp.zeros((num_features, num_features), dtype=cp.float32)
+        
+        self._prev_A = self.A.copy()
+        
+    def update(self, y, x):
+        """Update with GPU arrays."""
+        # Ensure GPU tensors
+        if isinstance(y, np.ndarray):
+            y = cp.asarray(y, dtype=cp.float32)
+        if isinstance(x, np.ndarray):
+            x = cp.asarray(x, dtype=cp.float32)
+            
+        y_col = y.reshape(-1, 1)
+        x_col = x.reshape(-1, 1)
+        
+        # Compute on GPU
+        cp.dot(self.P, y_col, out=self._Py)
+        self._yTPy = float(cp.dot(y_col.T, self._Py)) + self.eps
+        denom = self.lambda_ + self._yTPy
+        
+        cp.divide(self._Py, denom, out=self._K)
+        cp.dot(self.A.T, y_col, out=self._error)
+        cp.subtract(x_col, self._error, out=self._error)
+        
+        self._prev_A = self.A.copy()
+        self.A += cp.dot(self._K, self._error.T)
+        
+        cp.dot(self._K, cp.dot(y_col.T, self.P), out=self._KyTP)
+        cp.subtract(self.P, self._KyTP, out=self.P)
+        cp.divide(self.P, self.lambda_, out=self.P)
+        
+        return self.A
+    
+    def predict(self, y):
+        """Single prediction on GPU."""
+        if isinstance(y, np.ndarray):
+            y = cp.asarray(y, dtype=cp.float32)
+        y = y.reshape(-1, 1)
+        x_est = cp.dot(self.A.T, y)
+        return x_est.flatten()
+    
+    def predict_batch(self, X):
+        """Batch prediction on GPU."""
+        if isinstance(X, np.ndarray):
+            X = cp.asarray(X, dtype=cp.float32)
+        return cp.dot(X, self.A)
+    
+    def to_cpu(self):
+        """Transfer model to CPU."""
+        return cp.asnumpy(self.A)
+    
+    def from_cpu(self, A_cpu):
+        """Load model from CPU."""
+        self.A = cp.asarray(A_cpu, dtype=cp.float32)
+
+
+class RidgeRegression_GPU:
+    """
+    GPU-accelerated Ridge Regression using CuPy.
+    Implements the closed-form solution: (X^T X + λI)^-1 X^T y
+    """
+    def __init__(self, alpha=1.0):
+        self.alpha = alpha
+        self.coef_ = None
+        self.intercept_ = None
+        
+    def fit(self, X, y):
+        """Fit ridge regression on GPU."""
+        # Transfer to GPU
+        if isinstance(X, np.ndarray):
+            X = cp.asarray(X, dtype=cp.float32)
+        if isinstance(y, np.ndarray):
+            y = cp.asarray(y, dtype=cp.float32)
+        
+        # Ensure y is 2D
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
+        
+        # Add intercept column
+        n_samples = X.shape[0]
+        X_with_intercept = cp.column_stack([cp.ones(n_samples, dtype=cp.float32), X])
+        
+        # Ridge regression: (X^T X + λI)^-1 X^T y
+        XTX = cp.dot(X_with_intercept.T, X_with_intercept)
+        
+        # Add regularization (don't regularize intercept)
+        regularization = cp.eye(XTX.shape[0], dtype=cp.float32) * self.alpha
+        regularization[0, 0] = 0  # Don't regularize intercept
+        
+        XTX_reg = XTX + regularization
+        XTy = cp.dot(X_with_intercept.T, y)
+        
+        # Solve using Cholesky decomposition (faster and more stable)
+        try:
+            coefficients = cp.linalg.solve(XTX_reg, XTy)
+        except cp.linalg.LinAlgError:
+            # Fallback to pseudoinverse if singular
+            coefficients = cp.linalg.lstsq(XTX_reg, XTy, rcond=None)[0]
+        
+        # Store intercept and coefficients
+        # coefficients shape: (n_features+1, n_outputs)
+        self.intercept_ = coefficients[0]  # Shape: (n_outputs,)
+        self.coef_ = coefficients[1:]      # Shape: (n_features, n_outputs)
+        
+        # Flatten if single output
+        if self.coef_.shape[1] == 1:
+            self.intercept_ = float(self.intercept_[0])
+            self.coef_ = self.coef_.flatten()
+        
+        return self
+    
+    def predict(self, X):
+        """Predict on GPU."""
+        if isinstance(X, np.ndarray):
+            X = cp.asarray(X, dtype=cp.float32)
+        
+        # Prediction based on coefficient shape
+        if self.coef_.ndim == 1:
+            # Single output
+            return cp.dot(X, self.coef_) + self.intercept_
+        else:
+            # Multi-output: X @ coef + intercept
+            # X shape: (n_samples, n_features)
+            # coef shape: (n_features, n_outputs)
+            return cp.dot(X, self.coef_) + self.intercept_
+    
+    def to_cpu(self):
+        """Transfer model to CPU."""
+        return {
+            'coef_': cp.asnumpy(self.coef_),
+            'intercept_': cp.asnumpy(self.intercept_)
+        }
+    
+    def from_cpu(self, model_dict):
+        """Load model from CPU."""
+        self.coef_ = cp.asarray(model_dict['coef_'], dtype=cp.float32)
+        if isinstance(model_dict['intercept_'], np.ndarray):
+            self.intercept_ = cp.asarray(model_dict['intercept_'], dtype=cp.float32)
+        else:
+            self.intercept_ = cp.float32(model_dict['intercept_'])
