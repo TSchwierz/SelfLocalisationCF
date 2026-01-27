@@ -206,9 +206,9 @@ class GridNetwork:
             self.tau,
             noise
         )
-        
+
         # Update the network activity
-        self.network_activity = np.clip(result, 0.0, 1.0)
+        self.network_activity = result
         
         return result
 

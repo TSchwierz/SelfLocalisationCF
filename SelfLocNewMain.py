@@ -570,28 +570,20 @@ def run_decoders_optimized(data, n_folds=5, n_jobs=-1):
     
     results = {
         'y_pred_rr_overfit': y_pred_rr_overfit,
-        'mse_rr_overfit': np.mean(mse_rr_overfit),
-        'r2_rr_overfit': np.mean(r2_rr_overfit),
-        'mse_rr_overfit_per_fold': mse_rr_overfit,
-        'r2_rr_overfit_per_fold': r2_rr_overfit,
+        'mse_rr_overfit': mse_rr_overfit,
+        'r2_rr_overfit': r2_rr_overfit,
         
         'y_pred_rls_overfit': y_pred_rls_overfit,
-        'mse_rls_overfit': np.mean(mse_rls_overfit),
-        'r2_rls_overfit': np.mean(r2_rls_overfit),
-        'mse_rls_overfit_per_fold': mse_rls_overfit,
-        'r2_rls_overfit_per_fold': r2_rls_overfit,
+        'mse_rls_overfit': mse_rls_overfit,
+        'r2_rls_overfit': r2_rls_overfit,
         
         'y_pred_rr_heldout': y_pred_rr,
-        'mse_rr_heldout': np.mean(mse_rr),
-        'r2_rr_heldout': np.mean(r2_rr),
-        'mse_rr_heldout_per_fold': mse_rr,
-        'r2_rr_heldout_per_fold': r2_rr,
+        'mse_rr_heldout': mse_rr,
+        'r2_rr_heldout': r2_rr,
         
         'y_pred_rls_heldout': y_pred_rls,
-        'mse_rls_heldout': np.mean(mse_rls),
-        'r2_rls_heldout': np.mean(r2_rls),
-        'mse_rls_heldout_per_fold': mse_rls,
-        'r2_rls_heldout_per_fold': r2_rls,
+        'mse_rls_heldout': mse_rls,
+        'r2_rls_heldout': r2_rls,
     }
     
     return results
@@ -926,28 +918,20 @@ def run_decoders_gpu(data, n_folds=5, n_jobs=-1, gpu_ids=None):
     
     results = {
         'y_pred_rr_overfit': y_pred_rr_overfit,
-        'mse_rr_overfit': np.mean(mse_rr_overfit),
-        'r2_rr_overfit': np.mean(r2_rr_overfit),
-        'mse_rr_overfit_per_fold': mse_rr_overfit,
-        'r2_rr_overfit_per_fold': r2_rr_overfit,
+        'mse_rr_overfit': mse_rr_overfit,
+        'r2_rr_overfit': r2_rr_overfit,
         
         'y_pred_rls_overfit': y_pred_rls_overfit,
-        'mse_rls_overfit': np.mean(mse_rls_overfit),
-        'r2_rls_overfit': np.mean(r2_rls_overfit),
-        'mse_rls_overfit_per_fold': mse_rls_overfit,
-        'r2_rls_overfit_per_fold': r2_rls_overfit,
+        'mse_rls_overfit': mse_rls_overfit,
+        'r2_rls_overfit': r2_rls_overfit,
         
         'y_pred_rr_heldout': y_pred_rr,
-        'mse_rr_heldout': np.mean(mse_rr),
-        'r2_rr_heldout': np.mean(r2_rr),
-        'mse_rr_heldout_per_fold': mse_rr,
-        'r2_rr_heldout_per_fold': r2_rr,
+        'mse_rr_heldout': mse_rr,
+        'r2_rr_heldout': r2_rr,
         
         'y_pred_rls_heldout': y_pred_rls,
-        'mse_rls_heldout': np.mean(mse_rls),
-        'r2_rls_heldout': np.mean(r2_rls),
-        'mse_rls_heldout_per_fold': mse_rls,
-        'r2_rls_heldout_per_fold': r2_rls,
+        'mse_rls_heldout': mse_rls,
+        'r2_rls_heldout': r2_rls,
     }
     
     return results
@@ -960,7 +944,7 @@ if __name__ == "__main__":
     trans_field = robot_node.getField("translation")
     INITIAL = [0, 0, 0]
 
-    trial_per_setting = 5
+    trial_per_setting = 20
 
     # Generate Gain Lists for Benchmark
     nr = [3, 4, 5]
@@ -969,7 +953,7 @@ if __name__ == "__main__":
     #gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
     # Name for the results folder (used for id)
-    name = 'Review Noise Test with clipping'
+    name = 'Review Gain Variation Mulplicative noise'
 
     ###################### Test Setting
     #setting_name = 'test'
@@ -979,11 +963,11 @@ if __name__ == "__main__":
     #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
     #################### Benchmark Gain Settings
-    #setting_name = 'gain variation'
-    #gains = gain_list
-    #setting = gains
-    #times = 10.0 * np.ones(len(setting)) # in minutes
-    #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+    setting_name = 'gain variation'
+    gains = gain_list
+    setting = gains
+    times = 10.0 * np.ones(len(setting)) # in minutes
+    noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
     ##################### Time Variation Settings
     #setting_name = 'time variation'
@@ -993,11 +977,11 @@ if __name__ == "__main__":
     #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
     ###################### Noise Variation Settings
-    setting_name = 'noise variation'
-    noise = [0.05, 0.10, 0.20, 0.35, 0.50]
-    setting = noise
-    times = 10.0 * np.ones(len(setting)) # in minutes
-    gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
+    #setting_name = 'noise variation'
+    #noise = [0.05, 0.10, 0.20, 0.35, 0.50]
+    #setting = noise
+    #times = 10.0 * np.ones(len(setting)) # in minutes
+    #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
 
     for i, var in enumerate(setting):
         dim2 = False
