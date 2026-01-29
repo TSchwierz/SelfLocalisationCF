@@ -944,7 +944,7 @@ if __name__ == "__main__":
     trans_field = robot_node.getField("translation")
     INITIAL = [0, 0, 0]
 
-    trial_per_setting = 20
+    trial_per_setting_ = 10
 
     # Generate Gain Lists for Benchmark
     nr = [3, 4, 5]
@@ -953,21 +953,21 @@ if __name__ == "__main__":
     #gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
     # Name for the results folder (used for id)
-    name = 'Review Gain Variation Mulplicative noise'
+    name = 'Replicate'
 
     ###################### Test Setting
-    #setting_name = 'test'
-    #gains = [[0.2, 0.3, 0.4, 0.5]] #Example gain setting
-    #setting = [gains] #list of parameter to test
-    #times = 20.0 * np.ones(len(setting)) # in minutes
-    #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+    setting_name = 'replication'
+    setting = range(10) #list of parameter to test
+    gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
+    times = 5.0 * np.ones(len(setting)) # in minutes
+    noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
     #################### Benchmark Gain Settings
-    setting_name = 'gain variation'
-    gains = gain_list
-    setting = gains
-    times = 10.0 * np.ones(len(setting)) # in minutes
-    noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+    #setting_name = 'gain variation'
+    #gains = gain_list
+    #setting = gains
+    #times = 10.0 * np.ones(len(setting)) # in minutes
+    #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
     ##################### Time Variation Settings
     #setting_name = 'time variation'
@@ -985,9 +985,9 @@ if __name__ == "__main__":
 
     for i, var in enumerate(setting):
         dim2 = False
+        trial_per_setting = trial_per_setting_ # set to var if you want to vary trials per setting
 
-        print(f'Running {trial_per_setting} trials for setting {i+1}/{len(setting)}')#'')
-        #id_ = f'Benchmark 3D setting{i+1}of{len(setting)}'#'{len(setting)}'
+        print(f'Running {trial_per_setting} trials for setting {i+1}/{len(setting)}')
         id_ = f'{name} Setting {i}of{len(setting)}'
         data_all = []
 
