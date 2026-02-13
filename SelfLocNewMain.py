@@ -786,7 +786,7 @@ def run_decoders_gpu(data, n_folds=5, n_jobs=-1, gpu_ids=None):
     print('OVERFITTING (IN-SAMPLE) PROTOCOL - GPU')
     print('='*70)
     
-    train_folds_overfit = int(0.8 * k_folds)
+    train_folds_overfit = int(0.8 * k_folds) # <- - 
     train_act_overfit = np.vstack([folds[j][0] for j in range(train_folds_overfit)])
     train_pos_overfit = np.vstack([folds[j][1] for j in range(train_folds_overfit)])
     
@@ -953,32 +953,33 @@ if __name__ == "__main__":
     #gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
     # Name for the results folder (used for id)
-    name = 'Replicate'
+    name = 'Pure dissatisfaction'
 
     ###################### Test Setting
     setting_name = 'replication'
-    setting = range(10) #list of parameter to test
+    setting = range(5) #list of parameter to test
     gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
     times = 5.0 * np.ones(len(setting)) # in minutes
-    noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+    noise = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
 
     #################### Benchmark Gain Settings
     #setting_name = 'gain variation'
-    #gains = gain_list
+    #print(gain_list[4:8])
+    #gains = gain_list[4:8]
     #setting = gains
     #times = 10.0 * np.ones(len(setting)) # in minutes
-    #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise = 0 * np.ones(len(setting)) # in fraction of max firing rate
 
     ##################### Time Variation Settings
     #setting_name = 'time variation'
-    #times = [10, 20, 30, 40] # in minutes
+    #times = [5, 10, 15, 20, 25, 30] # in minutes
     #setting = times
     #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
     #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
 
     ###################### Noise Variation Settings
     #setting_name = 'noise variation'
-    #noise = [0.05, 0.10, 0.20, 0.35, 0.50]
+    #noise = [0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
     #setting = noise
     #times = 10.0 * np.ones(len(setting)) # in minutes
     #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
