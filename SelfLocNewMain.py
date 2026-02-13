@@ -959,7 +959,7 @@ if __name__ == "__main__":
     setting_name = 'replication'
     setting = range(5) #list of parameter to test
     gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
-    times = 5.0 * np.ones(len(setting)) # in minutes
+    times = 10.0 * np.ones(len(setting)) # in minutes
     noise = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
 
     #################### Benchmark Gain Settings
