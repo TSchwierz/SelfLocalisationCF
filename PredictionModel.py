@@ -2,12 +2,9 @@
 Module for fitting linear models with convergence tracking and comparing Ridge regression with Recursive Least Squares (RLS).
 '''
 import numpy as np
-import matplotlib.pyplot as plt
-from time import perf_counter
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold, cross_val_predict, cross_val_score
 from sklearn.metrics import mean_squared_error, r2_score
-from numba import jit, cuda
 import cupy as cp
 
 def fit_linear_model(x_train, y_train, x_test, y_test, model=None):
@@ -232,34 +229,6 @@ class OptimisedRLS:
         Returns:
         np.ndarray: Predicted output (2D/3D position).
         """
-        y = y.reshape(-1, 1)
-        x_est = np.dot(self.A.T, y)
-        return x_est.flatten()
-
-class OptimisedRLSVectorized:
-    """
-    Vectorized wrapper around OptimisedRLS for batch predictions.
-    Keeps the original sequential training but enables vectorized inference.
-    """
-    def __init__(self, base_rls_model):
-        self.A = base_rls_model.A
-        self.num_features = base_rls_model.A.shape[0]
-        self.num_outputs = base_rls_model.A.shape[1]
-    
-    def predict_batch(self, X):
-        """
-        Vectorized prediction for multiple timesteps.
-        
-        Parameters:
-        X (np.ndarray): Input features of shape (num_timesteps, num_features)
-        
-        Returns:
-        np.ndarray: Predictions of shape (num_timesteps, num_outputs)
-        """
-        return X @ self.A
-    
-    def predict(self, y):
-        """Single sample prediction for compatibility."""
         y = y.reshape(-1, 1)
         x_est = np.dot(self.A.T, y)
         return x_est.flatten()
