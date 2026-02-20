@@ -251,7 +251,8 @@ def simulate_webots(gains, robot_, simulated_minutes=1, training_fraction=0.8, n
             # Controller + Network Update         
             position_real, velocity_gps = controller.update( (movement_direction[:2] if two_dim else movement_direction) ) 
             velocity, az_corrected = controller.get_velocity(two_dim)
-            activity, pos_internal = mmc.update(velocity*dt, noise=neural_noise)
+            vel_ = (velocity + np.random.normal(0, velocity_noise, size=velocity.shape)) * dt # add velocity noise for prediction model input
+            activity, pos_internal = mmc.update(vel_, noise=neural_noise)
 
             # saving values
             integrated_pos_log.append(pos_internal.copy())
@@ -587,7 +588,7 @@ if __name__ == "__main__":
     trans_field = robot_node.getField("translation")
     INITIAL = [0, 0, 0]
 
-    trial_per_setting_ = 10
+    trial_per_setting_ = 20
 
     # Generate Gain Lists for Benchmark
     nr = [3, 4, 5]
@@ -596,14 +597,29 @@ if __name__ == "__main__":
     #gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
     # Name for the results folder (used for id)
-    name = 'Ridge alpha0'
+    name = 'ModelParams'
 
     ###################### Test Setting
-    setting_name = 'Testing'
-    setting = range(2) #list of parameter to test
+    setting_name = 'Testing Model Parameter'
+    model_confs = [[1.0, 0.999], [0.0, 0.999], [1.0, 1.0], [0.0, 1.0]] #alpha, lambda
+    setting = model_confs #list of parameter to test
     gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
     times = 10.0 * np.ones(len(setting)) # in minutes
-    noise = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    noise_ = (noise_act, noise_vel)
+
+    ##################### Velocity Noise Setting
+    #setting_name = 'velocity noise variation'
+    #noise_vel = [0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
+    #setting = noise #list of parameter to test
+    #gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
+    #times = 10.0 * np.ones(len(setting)) # in minutes
+    #noise = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    #model_confs = [[1.0, 0.999], [0.0, 0.999], [1.0, 1.0], [0.0, 1.0]]
+    #noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_ = (noise_act, noise_vel)
+    
 
     #################### Benchmark Gain Settings
     #setting_name = 'gain variation'
@@ -611,21 +627,27 @@ if __name__ == "__main__":
     #gains = gain_list[4:8]
     #setting = gains
     #times = 10.0 * np.ones(len(setting)) # in minutes
-    #noise = 0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_act = 0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_ = (noise_act, noise_vel)
 
     ##################### Time Variation Settings
     #setting_name = 'time variation'
     #times = [5, 10, 15, 20, 25, 30] # in minutes
     #setting = times
     #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
-    #noise = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_act = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_ = (noise_act, noise_vel)
 
     ###################### Noise Variation Settings
     #setting_name = 'noise variation'
-    #noise = [0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
+    #noise_act = [0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
     #setting = noise
     #times = 10.0 * np.ones(len(setting)) # in minutes
     #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
+    #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_ = (noise_act, noise_vel)
 
     for i, var in enumerate(setting):
         dim2 = False
@@ -644,12 +666,15 @@ if __name__ == "__main__":
             # Generate webots data
             trans_field.setSFVec3f(INITIAL)
             robot_node.resetPhysics()
+            print(f'Simulating with noise [activity={noise_[0][i]}, velocity={noise_[1][i]}]')
             data = simulate_webots(gains=gains[i], robot_=robot, simulated_minutes=times[i],
-               training_fraction=0.8, noise_scales=(noise[i], 0.00), angular_std=0.33, two_dim=dim2,
+               training_fraction=0.8, noise_scales=(noise_[0][i], noise_[1][i]), angular_std=0.33, two_dim=dim2,
               results_dir=results_dir, trial=trial)
             
             # Run decoders
-            decoder_results = run_decoders_optimized(data, alpha_ = float(var))
+            alpha_, lambda_ = var if setting_name == 'Testing Model Parameter' else (1.0, 0.999) # default values if not provided
+            print(f'Decoding with [alpha={alpha_}, lambda={lambda_}]')
+            decoder_results = run_decoders_optimized(data, alpha_ = alpha_, lambda_ = lambda_)
             data.update(decoder_results) # add decoder results to data of trial
             decoder_results.update({'volume': data['volume visited']}) # add visited volume to the values to avg over trials
 
