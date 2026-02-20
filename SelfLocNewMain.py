@@ -649,7 +649,7 @@ if __name__ == "__main__":
               results_dir=results_dir, trial=trial)
             
             # Run decoders
-            decoder_results = run_decoders_optimized(data, alpha = float(var))
+            decoder_results = run_decoders_optimized(data, alpha_ = float(var))
             data.update(decoder_results) # add decoder results to data of trial
             decoder_results.update({'volume': data['volume visited']}) # add visited volume to the values to avg over trials
 
