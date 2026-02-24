@@ -193,7 +193,7 @@ def update_direction(current_direction, magnitude, dt, angular_std=0.25):
     #print(f'{new_direction}, size={np.linalg.norm(new_direction)}')
     return new_direction * magnitude
 
-def simulate_webots(gains, robot_, simulated_minutes=1, training_fraction=0.8, noise_scales=(0 , 0), angular_std=0.33, two_dim=False, results_dir=None, trial=0):
+def simulate_webots(gains, robot_, simulated_minutes=1, noise_scales=(0 , 0), angular_std=0.33, two_dim=False):
     # Initialize simulation components
     robot = robot_
     timestep_ms = int(robot.getBasicTimeStep())
@@ -597,17 +597,17 @@ if __name__ == "__main__":
     #gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
     # Name for the results folder (used for id)
-    name = 'ModelParams'
+    name = 'All Noise Test'
 
     ###################### Test Setting
-    setting_name = 'Testing Model Parameter'
-    model_confs = [[1.0, 0.999], [0.0, 0.999], [1.0, 1.0], [0.0, 1.0]] #alpha, lambda
-    setting = model_confs #list of parameter to test
-    gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
-    times = 10.0 * np.ones(len(setting)) # in minutes
-    noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    noise_ = (noise_act, noise_vel)
+    #setting_name = 'Testing Model Parameter'
+    #model_confs = [[1.0, 0.999], [0.0, 0.999], [1.0, 1.0], [0.0, 1.0]] #alpha, lambda
+    #setting = model_confs #list of parameter to test
+    #gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
+    #times = 10.0 * np.ones(len(setting)) # in minutes
+    #noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_ = (noise_act, noise_vel)
 
     ##################### Velocity Noise Setting
     #setting_name = 'velocity noise variation'
@@ -620,7 +620,6 @@ if __name__ == "__main__":
     #noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
     #noise_ = (noise_act, noise_vel)
     
-
     #################### Benchmark Gain Settings
     #setting_name = 'gain variation'
     #print(gain_list[4:8])
@@ -640,12 +639,24 @@ if __name__ == "__main__":
     #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
     #noise_ = (noise_act, noise_vel)
 
-    ###################### Noise Variation Settings
+    ###################### Activity Noise Variation Settings
     #setting_name = 'noise variation'
     #noise_act = [0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
     #setting = noise
     #times = 10.0 * np.ones(len(setting)) # in minutes
     #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
+    #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_ = (noise_act, noise_vel)
+
+     ###################### Both Noise Variation Settings
+    setting_name = 'both noise variation'
+    noise_act = [0, 0.1]#[0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
+    noise_vel = [0, 0.1]#[0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
+    a_, v_ = np.meshgrid(noise_act, noise_vel)
+    noise_ = np.stack([a_.ravel(), v_.ravel()], axis=1)
+    setting = noise_
+    times = 10.0 * np.ones(len(setting)) # in minutes
+    gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
     #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
     #noise_ = (noise_act, noise_vel)
 
@@ -668,8 +679,7 @@ if __name__ == "__main__":
             robot_node.resetPhysics()
             print(f'Simulating with noise [activity={noise_[0][i]}, velocity={noise_[1][i]}]')
             data = simulate_webots(gains=gains[i], robot_=robot, simulated_minutes=times[i],
-               training_fraction=0.8, noise_scales=(noise_[0][i], noise_[1][i]), angular_std=0.33, two_dim=dim2,
-              results_dir=results_dir, trial=trial)
+                                  noise_scales=(noise_[0][i], noise_[1][i]), angular_std=0.33, two_dim=dim2)
             
             # Run decoders
             alpha_, lambda_ = var if setting_name == 'Testing Model Parameter' else (1.0, 0.999) # default values if not provided
