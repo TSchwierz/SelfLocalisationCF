@@ -19,7 +19,7 @@ from DroneController import DroneController
 from optimisedGridNetwork import MixedModularCoder
 from datetime import datetime
 import pickle
-from PredictionModel import OptimisedRLS, RidgeRegression_GPU, OptimisedRLS_GPU
+from PredictionModel import OptimisedRLS
 from time import perf_counter
 from sklearn.metrics import mean_squared_error, r2_score
 from joblib import Parallel, delayed
@@ -334,7 +334,8 @@ def get_shared_memory_array(shm_name, shape, dtype):
     return array, shm
 
 
-def process_overfit_window_optimized(i, overfit_test_folds, rr_weights_shm_name, rr_weights_shape, 
+def process_overfit_window_optimized(i, overfit_test_folds, rr_weights_shm_name, rr_weights_shape,
+                                        rr_intercept_shm_name, rr_intercept_shape,
                                       rls_weights_shm_name, rls_weights_shape, weights_dtype,
                                       train_pos_overfit, k_folds):
     """
@@ -344,11 +345,12 @@ def process_overfit_window_optimized(i, overfit_test_folds, rr_weights_shm_name,
     
     # Reconstruct models from shared memory
     rr_weights, rr_shm = get_shared_memory_array(rr_weights_shm_name, rr_weights_shape, weights_dtype)
+    rr_intercept, rr_intercept_shm = get_shared_memory_array(rr_intercept_shm_name, rr_intercept_shape, weights_dtype)
     rls_weights, rls_shm = get_shared_memory_array(rls_weights_shm_name, rls_weights_shape, weights_dtype)
     
     # === Ridge Regression - Vectorized Prediction ===
     # Manual prediction: X @ weights (sklearn Ridge stores coef_ as (n_outputs, n_features))
-    y_pred_rr_i = test_act_window @ rr_weights.T
+    y_pred_rr_i = test_act_window @ rr_weights.T + rr_intercept  # Shape: (num_timesteps, 3)
     mse_rr_i = mean_squared_error(test_pos_window, y_pred_rr_i)
     r2_rr_i = r2_score(test_pos_window, y_pred_rr_i)
     
@@ -367,6 +369,7 @@ def process_overfit_window_optimized(i, overfit_test_folds, rr_weights_shm_name,
     
     # Cleanup shared memory references
     rr_shm.close()
+    rr_intercept_shm.close()
     rls_shm.close()
     
     return (y_pred_rr_i, mse_rr_i, r2_rr_i, pred_pos, avg_mse, r2)
@@ -460,6 +463,9 @@ def run_decoders_optimized(data, n_folds=5, n_jobs=-1, alpha_=1, lambda_=0.999):
     rr_weights_shm, rr_shape, rr_dtype = create_shared_memory_array(
         rr_model_overfit.coef_, "rr_weights"
     )
+    rr_intercept_shm, rr_intercept_shape, rr_intercept_dtype = create_shared_memory_array(
+    rr_model_overfit.intercept_, "rr_intercept"
+    )
     rls_weights_shm, rls_shape, rls_dtype = create_shared_memory_array(
         rls_model_overfit.A, "rls_weights"
     )
@@ -475,6 +481,7 @@ def run_decoders_optimized(data, n_folds=5, n_jobs=-1, alpha_=1, lambda_=0.999):
         delayed(process_overfit_window_optimized)(
             i, overfit_test_folds, 
             rr_weights_shm.name, rr_shape,
+            rr_intercept_shm.name, rr_intercept_shape,
             rls_weights_shm.name, rls_shape,
             rr_dtype, train_pos_overfit, k_folds
         ) for i in range(k_folds)
@@ -485,6 +492,8 @@ def run_decoders_optimized(data, n_folds=5, n_jobs=-1, alpha_=1, lambda_=0.999):
     # Cleanup shared memory
     rr_weights_shm.close()
     rr_weights_shm.unlink()
+    rr_intercept_shm.close()
+    rr_intercept_shm.unlink()
     rls_weights_shm.close()
     rls_weights_shm.unlink()
     
@@ -597,17 +606,17 @@ if __name__ == "__main__":
     #gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
     # Name for the results folder (used for id)
-    name = 'All Noise Test'
+    name = 'ModelParams'
 
     ###################### Test Setting
-    #setting_name = 'Testing Model Parameter'
-    #model_confs = [[1.0, 0.999], [0.0, 0.999], [1.0, 1.0], [0.0, 1.0]] #alpha, lambda
-    #setting = model_confs #list of parameter to test
-    #gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
-    #times = 10.0 * np.ones(len(setting)) # in minutes
-    #noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    #noise_ = (noise_act, noise_vel)
+    setting_name = 'Testing Model Parameter'
+    model_confs = [[1.0, 0.999], [0.0, 0.999], [1.0, 1.0], [0.0, 1.0]] #alpha, lambda
+    setting = model_confs #list of parameter to test
+    gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
+    times = 10.0 * np.ones(len(setting)) # in minutes
+    noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    noise_ = (noise_act, noise_vel)
 
     ##################### Velocity Noise Setting
     #setting_name = 'velocity noise variation'
@@ -649,14 +658,14 @@ if __name__ == "__main__":
     #noise_ = (noise_act, noise_vel)
 
      ###################### Both Noise Variation Settings
-    setting_name = 'both noise variation'
-    noise_act = [0, 0.1]#[0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
-    noise_vel = [0, 0.1]#[0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
-    a_, v_ = np.meshgrid(noise_act, noise_vel)
-    noise_ = np.stack([a_.ravel(), v_.ravel()], axis=1)
-    setting = noise_
-    times = 10.0 * np.ones(len(setting)) # in minutes
-    gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
+    #setting_name = 'both noise variation'
+    #noise_act = [0, 0.1]#[0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
+    #noise_vel = [0, 0.1]#[0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
+    #a_, v_ = np.meshgrid(noise_act, noise_vel)
+    #noise_ = np.stack([a_.ravel(), v_.ravel()], axis=1)
+    #setting = noise_
+    #times = 10.0 * np.ones(len(setting)) # in minutes
+    #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
     #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
     #noise_ = (noise_act, noise_vel)
 
@@ -677,9 +686,9 @@ if __name__ == "__main__":
             # Generate webots data
             trans_field.setSFVec3f(INITIAL)
             robot_node.resetPhysics()
-            print(f'Simulating with noise [activity={noise_[0][i]}, velocity={noise_[1][i]}]')
+            print(f'Simulating with noise [activity={noise_[i][0]}, velocity={noise_[i][1]}]')
             data = simulate_webots(gains=gains[i], robot_=robot, simulated_minutes=times[i],
-                                  noise_scales=(noise_[0][i], noise_[1][i]), angular_std=0.33, two_dim=dim2)
+                                  noise_scales=(noise_[i][0], noise_[i][0]), angular_std=0.33, two_dim=dim2)
             
             # Run decoders
             alpha_, lambda_ = var if setting_name == 'Testing Model Parameter' else (1.0, 0.999) # default values if not provided
@@ -714,6 +723,8 @@ if __name__ == "__main__":
 
         summary['setting var'] = setting
         summary['setting mode'] = setting_name
+        summary['noise'] = noise_[i]
+        summary['model parameters'] = (alpha_, lambda_)
         save_object(summary, f'{results_dir}\\summary.pickle')
 
         print(f"\n→ All trials done. Summary saved to {results_dir}\\Summary.pickle")
