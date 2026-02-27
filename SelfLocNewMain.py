@@ -391,7 +391,7 @@ def process_fold_heldout_optimized(i, folds, activity_shape, alpha = 1.0, lambda
     r2_rr_i = r2_score(test_pos, y_pred_rr_i)
     
     # === Train RLS model (sequential - unavoidable) ===
-    rls_model = OptimisedRLS(activity_shape, num_outputs=3, lambda_=lambda_, delta=1e2)
+    rls_model = OptimisedRLS(activity_shape, num_outputs=3, lambda_=lambda_)
     for t, (pos, act) in enumerate(zip(train_pos, train_act)):
         rls_model.update(act, pos)
     
@@ -451,7 +451,7 @@ def run_decoders_optimized(data, n_folds=5, n_jobs=-1, alpha_=1, lambda_=0.999):
     # === Train RLS model ===
     print('Training RLS model...')
     t_start = perf_counter()
-    rls_model_overfit = OptimisedRLS(activity.shape[1], num_outputs=3, lambda_=lambda_, delta=1e2)
+    rls_model_overfit = OptimisedRLS(activity.shape[1], num_outputs=3, lambda_=lambda_)
     for t, (pos, act) in enumerate(zip(train_pos_overfit, train_act_overfit)):
         rls_model_overfit.update(act, pos)
         if (t + 1) % 5000 == 0:
@@ -597,7 +597,7 @@ if __name__ == "__main__":
     trans_field = robot_node.getField("translation")
     INITIAL = [0, 0, 0]
 
-    trial_per_setting_ = 20
+    trial_per_setting_ = 1
 
     # Generate Gain Lists for Benchmark
     nr = [3, 4, 5]
@@ -606,17 +606,17 @@ if __name__ == "__main__":
     #gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
     # Name for the results folder (used for id)
-    name = 'ModelParams'
+    name = 'TestLowLambda'
 
     ###################### Test Setting
     setting_name = 'Testing Model Parameter'
-    model_confs = [[1.0, 0.999], [0.0, 0.999], [1.0, 1.0], [0.0, 1.0]] #alpha, lambda
+    model_confs = [[1.0, 0.99], [1.0, 0.999], [1.0, 0.9999]] #alpha, lambda
     setting = model_confs #list of parameter to test
     gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
-    times = 10.0 * np.ones(len(setting)) # in minutes
+    times = 1.0 * np.ones(len(setting)) # in minutes
     noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
     noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    noise_ = (noise_act, noise_vel)
+    noise_ = np.stack([noise_act, noise_vel], axis=1)
 
     ##################### Velocity Noise Setting
     #setting_name = 'velocity noise variation'
@@ -627,7 +627,7 @@ if __name__ == "__main__":
     #noise = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
     #model_confs = [[1.0, 0.999], [0.0, 0.999], [1.0, 1.0], [0.0, 1.0]]
     #noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    #noise_ = (noise_act, noise_vel)
+    #noise_ = np.stack([noise_act, noise_vel], axis=1)
     
     #################### Benchmark Gain Settings
     #setting_name = 'gain variation'
@@ -637,7 +637,7 @@ if __name__ == "__main__":
     #times = 10.0 * np.ones(len(setting)) # in minutes
     #noise_act = 0 * np.ones(len(setting)) # in fraction of max firing rate
     #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    #noise_ = (noise_act, noise_vel)
+    #noise_ = np.stack([noise_act, noise_vel], axis=1)
 
     ##################### Time Variation Settings
     #setting_name = 'time variation'
@@ -646,7 +646,7 @@ if __name__ == "__main__":
     #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
     #noise_act = 0.05 * np.ones(len(setting)) # in fraction of max firing rate
     #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    #noise_ = (noise_act, noise_vel)
+    #noise_ = np.stack([noise_act, noise_vel], axis=1)
 
     ###################### Activity Noise Variation Settings
     #setting_name = 'noise variation'
@@ -655,7 +655,7 @@ if __name__ == "__main__":
     #times = 10.0 * np.ones(len(setting)) # in minutes
     #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
     #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    #noise_ = (noise_act, noise_vel)
+    #noise_ = np.stack([noise_act, noise_vel], axis=1)
 
      ###################### Both Noise Variation Settings
     #setting_name = 'both noise variation'
@@ -666,8 +666,6 @@ if __name__ == "__main__":
     #setting = noise_
     #times = 10.0 * np.ones(len(setting)) # in minutes
     #gains = [[0.2, 0.3, 0.4, 0.5]]*len(setting)
-    #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    #noise_ = (noise_act, noise_vel)
 
     for i, var in enumerate(setting):
         dim2 = False
