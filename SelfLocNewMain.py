@@ -218,7 +218,7 @@ def simulate_webots(gains, robot_, simulated_minutes=1, noise_scales=(0 , 0), an
     MAX_SIMULATION_TIME = (60 * simulated_minutes) + INITIAL_PAUSE # 1min in seconds * amount of hours
     UPDATE_INTERVAL = MAX_SIMULATION_TIME/10 #define amount of console updates by changing denominator
     
-    print(f'Starting Webots Simulation, gains:{gains}')
+    print(f'Starting Webots Simulation, gains:{gains}, velocity noise:{velocity_noise}, activity noise:{neural_noise}')
     # Main loop: run until simulation termination signal or time limit reached
     while robot.step(timestep_ms) != -1 and elapsed_time < MAX_SIMULATION_TIME:
         elapsed_time += dt  # Update elapsed time in seconds
@@ -251,7 +251,7 @@ def simulate_webots(gains, robot_, simulated_minutes=1, noise_scales=(0 , 0), an
             # Controller + Network Update         
             position_real, velocity_gps = controller.update( (movement_direction[:2] if two_dim else movement_direction) ) 
             velocity, az_corrected = controller.get_velocity(two_dim)
-            vel_ = (velocity + np.random.normal(0, velocity_noise, size=velocity.shape)) * dt # add velocity noise for prediction model input
+            vel_ = (velocity + np.random.normal(loc=0, scale=velocity_noise, size=velocity.shape)) * dt # add velocity noise for prediction model input
             activity, pos_internal = mmc.update(vel_, noise=neural_noise)
 
             # saving values
@@ -606,28 +606,28 @@ if __name__ == "__main__":
     #gain_list = [[0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5], [0.2, 0.3, 0.4, 0.5, 0.6]]
 
     # Name for the results folder (used for id)
-    name = 'TestLowLambda'
+    name = 'VelNoise'
 
     ###################### Test Setting
-    setting_name = 'Testing Model Parameter'
-    model_confs = [[1.0, 0.99], [1.0, 0.999], [1.0, 0.9999]] #alpha, lambda
-    setting = model_confs #list of parameter to test
-    gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
-    times = 1.0 * np.ones(len(setting)) # in minutes
-    noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    noise_ = np.stack([noise_act, noise_vel], axis=1)
+    #setting_name = 'Testing Model Parameter'
+    #model_confs = [[1.0, 0.99], [1.0, 0.999], [1.0, 0.9999]] #alpha, lambda
+    #setting = model_confs #list of parameter to test
+    #gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
+    #times = 1.0 * np.ones(len(setting)) # in minutes
+    #noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_vel = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    #noise_ = np.stack([noise_act, noise_vel], axis=1)
 
     ##################### Velocity Noise Setting
-    #setting_name = 'velocity noise variation'
-    #noise_vel = [0, 0.005, 0.01, 0.05, 0.10, 0.20, 0.35, 0.50]
-    #setting = noise #list of parameter to test
-    #gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
-    #times = 10.0 * np.ones(len(setting)) # in minutes
-    #noise = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    #model_confs = [[1.0, 0.999], [0.0, 0.999], [1.0, 1.0], [0.0, 1.0]]
-    #noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
-    #noise_ = np.stack([noise_act, noise_vel], axis=1)
+    setting_name = 'velocity noise variation'
+    noise_vel = [0, 0.01, 0.1, 1]
+    setting = noise_vel #list of parameter to test
+    gains = [[0.2, 0.3, 0.4, 0.5]] * len(setting) #Example gain setting
+    times = 10.0 * np.ones(len(setting)) # in minutes
+    noise = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    model_confs = [1.0, 0.999]
+    noise_act = 0.0 * np.ones(len(setting)) # in fraction of max firing rate
+    noise_ = np.stack([noise_act, noise_vel], axis=1)
     
     #################### Benchmark Gain Settings
     #setting_name = 'gain variation'
@@ -686,7 +686,7 @@ if __name__ == "__main__":
             robot_node.resetPhysics()
             print(f'Simulating with noise [activity={noise_[i][0]}, velocity={noise_[i][1]}]')
             data = simulate_webots(gains=gains[i], robot_=robot, simulated_minutes=times[i],
-                                  noise_scales=(noise_[i][0], noise_[i][0]), angular_std=0.33, two_dim=dim2)
+                                  noise_scales=(noise_[i][0], noise_[i][1]), angular_std=0.33, two_dim=dim2)
             
             # Run decoders
             alpha_, lambda_ = var if setting_name == 'Testing Model Parameter' else (1.0, 0.999) # default values if not provided
