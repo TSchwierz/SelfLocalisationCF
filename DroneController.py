@@ -50,6 +50,8 @@ class DroneController:
         self.gyro.enable(timestep)
         self.acc = self.robot.getDevice("acc")
         self.acc.enable(timestep)
+        self.lidar = self.robot.getDevice("lidar") #New Lidar Sensor
+        self.lidar.enable(timestep)
         
         # Initialize state variables
         self.pos_global = [0.0, 0.0, 0.0]

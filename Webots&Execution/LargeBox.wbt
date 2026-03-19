@@ -1,0 +1,122 @@
+#VRML_SIM R2023b utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/floors/protos/Floor.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/Parquetry.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2022b/projects/appearances/protos/RoughOak.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/robots/bitcraze/crazyflie/protos/Crazyflie.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2022b/projects/objects/apartment_structure/protos/Wall.proto"
+
+WorldInfo {
+  FPS 30
+}
+Viewpoint {
+  orientation -0.3980375547907068 0.39953421543072404 0.8257956863997238 1.7573665131534664
+  position 0.11514638145637707 -16.29719817909938 22.591742317173928
+  follow "Crazyflie"
+  followType "Mounted Shot"
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+  castShadows FALSE
+}
+Floor {
+  size 20 10
+  appearance Parquetry {
+  }
+}
+Wall {
+  translation 10 0 0
+  rotation 0 1 0 4.692820414042842e-06
+  name "wall(1)"
+  size 0.05 10.01 4
+  appearance RoughOak {
+    colorOverride 0.6 0.3 1
+    textureTransform TextureTransform {
+      scale 1 0.1
+    }
+    IBLStrength 5
+  }
+}
+Wall {
+  translation 4 -2 0
+  rotation 0 1 0 4.692820414042842e-06
+  name "wall(5)"
+  size 0.05 6 4
+  appearance RoughOak {
+    colorOverride 1 0.3 0.3
+    textureTransform TextureTransform {
+      scale 1 0.1
+    }
+    IBLStrength 5
+  }
+}
+Wall {
+  translation -4 2 3.01756e-05
+  rotation 0 1 0 4.692820414042842e-06
+  name "wall(6)"
+  size 0.05 6 4
+  appearance RoughOak {
+    colorOverride 1 1 0.1
+    textureTransform TextureTransform {
+      scale 1 0.1
+    }
+    IBLStrength 5
+  }
+}
+Wall {
+  translation 0 -5 2.783e-05
+  rotation 0 1 0 4.692820414042842e-06
+  name "wall(3)"
+  size 20 0.05 4
+  appearance RoughOak {
+    colorOverride 1 0.8 0.7
+    textureTransform TextureTransform {
+      scale 1 0.1
+    }
+    IBLStrength 5
+  }
+}
+Wall {
+  translation 0 5 2.783e-05
+  rotation 0 1 0 4.692820414042842e-06
+  name "wall(4)"
+  size 20 0.05 4
+  appearance RoughOak {
+    colorOverride 1 0.8 0.7
+    textureTransform TextureTransform {
+      scale 1 0.1
+    }
+    IBLStrength 5
+  }
+}
+Wall {
+  translation -10 0 0
+  rotation 0 1 0 4.692820414042842e-06
+  name "wall(2)"
+  size 0.05 10.01 4
+  appearance RoughOak {
+    colorOverride 0.6 0.3 1
+    textureTransform TextureTransform {
+      scale 1 0.1
+    }
+    IBLStrength 5
+  }
+}
+DEF Crazyflie Crazyflie {
+  translation 0 0 1
+  controller "<extern>"
+  supervisor TRUE
+  extensionSlot [
+    Lidar {
+    }
+    InertialUnit {
+      name "imu"
+    }
+    Accelerometer {
+      name "acc"
+    }
+  ]
+}
